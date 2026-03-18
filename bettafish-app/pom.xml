@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.bettafish</groupId>
+        <artifactId>bettafish-parent</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>bettafish-app</artifactId>
+    <name>bettafish-app</name>
+    <description>主启动模块：REST API、WebSocket、分析编排</description>
+
+    <dependencies>
+        <!-- ====== 引入所有引擎模块 ====== -->
+        <dependency>
+            <groupId>com.bettafish</groupId>
+            <artifactId>bettafish-query-engine</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.bettafish</groupId>
+            <artifactId>bettafish-media-engine</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.bettafish</groupId>
+            <artifactId>bettafish-insight-engine</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.bettafish</groupId>
+            <artifactId>bettafish-forum-engine</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.bettafish</groupId>
+            <artifactId>bettafish-report-engine</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.bettafish</groupId>
+            <artifactId>bettafish-mind-spider</artifactId>
+        </dependency>
+
+        <!-- ====== Web + WebSocket + 监控 ====== -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-websocket</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+    </dependencies>
+
+    <!-- 唯一需要打可执行 fat jar 的模块 -->
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

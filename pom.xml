@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- ① 降级到 Spring Boot 3.4.5（兼容 Spring AI 1.0.0） -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.4.5</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.bettafish</groupId>
+    <artifactId>bettafish-parent</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <!-- ② 声明为 pom 父模块 -->
+    <packaging>pom</packaging>
+
+    <name>BettaFish Parent</name>
+    <description>微舆 - 多智能体舆情分析系统 (Java/Spring AI)</description>
+
+    <!-- ③ 子模块声明 -->
+    <modules>
+        <module>bettafish-common</module>
+        <module>bettafish-query-engine</module>
+        <module>bettafish-media-engine</module>
+        <module>bettafish-insight-engine</module>
+        <module>bettafish-forum-engine</module>
+        <module>bettafish-report-engine</module>
+        <module>bettafish-mind-spider</module>
+        <module>bettafish-sentiment-mcp</module>
+        <module>bettafish-app</module>
+    </modules>
+
+    <properties>
+        <!-- ④ 降级到 Java 21 LTS -->
+        <java.version>21</java.version>
+        <spring-ai.version>1.0.1</spring-ai.version>
+        <onnxruntime.version>1.17.0</onnxruntime.version>
+        <openpdf.version>2.0.2</openpdf.version>
+    </properties>
+
+    <!-- ⑤ BOM 统一管理版本（声明但不引入） -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-bom</artifactId>
+                <version>${spring-ai.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <!-- 内部模块互引 -->
+            <dependency>
+                <groupId>com.bettafish</groupId>
+                <artifactId>bettafish-common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.bettafish</groupId>
+                <artifactId>bettafish-query-engine</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.bettafish</groupId>
+                <artifactId>bettafish-media-engine</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.bettafish</groupId>
+                <artifactId>bettafish-insight-engine</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.bettafish</groupId>
+                <artifactId>bettafish-forum-engine</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.bettafish</groupId>
+                <artifactId>bettafish-report-engine</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.bettafish</groupId>
+                <artifactId>bettafish-mind-spider</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.bettafish</groupId>
+                <artifactId>bettafish-sentiment-mcp</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <!-- 第三方库版本锁定 -->
+            <dependency>
+                <groupId>com.microsoft.onnxruntime</groupId>
+                <artifactId>onnxruntime</artifactId>
+                <version>${onnxruntime.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.github.librepdf</groupId>
+                <artifactId>openpdf</artifactId>
+                <version>${openpdf.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <!-- ⑥ 只保留全局共享依赖 -->
+    <dependencies>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-logging</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <!-- ⑦ spring-boot-maven-plugin 移到 pluginManagement -->
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-maven-plugin</artifactId>
+                    <configuration>
+                        <excludes>
+                            <exclude>
+                                <groupId>org.projectlombok</groupId>
+                                <artifactId>lombok</artifactId>
+                            </exclude>
+                        </excludes>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <!-- Spring AI 里程碑仓库（正式版发布后可移除） -->
+    <repositories>
+        <repository>
+            <id>spring-milestones</id>
+            <name>Spring Milestones</name>
+            <url>https://repo.spring.io/milestone</url>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </repository>
+    </repositories>
+
+</project>
