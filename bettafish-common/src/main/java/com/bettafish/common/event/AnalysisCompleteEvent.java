@@ -7,5 +7,5 @@ public record AnalysisCompleteEvent(
     String taskId,
     AnalysisTaskSnapshot snapshot,
     Instant occurredAt
-) {
+) implements AnalysisEvent {
 }

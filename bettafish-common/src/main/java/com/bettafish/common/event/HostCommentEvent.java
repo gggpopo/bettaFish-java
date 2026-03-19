@@ -7,5 +7,5 @@ public record HostCommentEvent(
     String hostName,
     String comment,
     Instant occurredAt
-) {
+) implements AnalysisEvent {
 }

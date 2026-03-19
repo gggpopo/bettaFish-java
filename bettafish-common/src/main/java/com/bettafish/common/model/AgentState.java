@@ -9,8 +9,11 @@ public class AgentState {
     private String topic;
     private int round;
     private String status = "IDLE";
+    private String currentNode;
+    private String finalReport = "";
     private final List<ParagraphState> paragraphs = new ArrayList<>();
     private final List<ForumMessage> forumMessages = new ArrayList<>();
+    private final List<ForumGuidance> forumGuidanceHistory = new ArrayList<>();
 
     public AgentState() {
     }
@@ -52,11 +55,46 @@ public class AgentState {
         this.status = status;
     }
 
+    public String getCurrentNode() {
+        return currentNode;
+    }
+
+    public void setCurrentNode(String currentNode) {
+        this.currentNode = currentNode;
+    }
+
+    public String getFinalReport() {
+        return finalReport;
+    }
+
+    public void setFinalReport(String finalReport) {
+        this.finalReport = finalReport;
+    }
+
     public List<ParagraphState> getParagraphs() {
         return paragraphs;
     }
 
+    public void setParagraphs(List<ParagraphState> paragraphs) {
+        this.paragraphs.clear();
+        this.paragraphs.addAll(paragraphs);
+    }
+
     public List<ForumMessage> getForumMessages() {
         return forumMessages;
+    }
+
+    public void setForumMessages(List<ForumMessage> forumMessages) {
+        this.forumMessages.clear();
+        this.forumMessages.addAll(forumMessages);
+    }
+
+    public List<ForumGuidance> getForumGuidanceHistory() {
+        return forumGuidanceHistory;
+    }
+
+    public void setForumGuidanceHistory(List<ForumGuidance> forumGuidanceHistory) {
+        this.forumGuidanceHistory.clear();
+        this.forumGuidanceHistory.addAll(forumGuidanceHistory);
     }
 }

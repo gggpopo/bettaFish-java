@@ -3,6 +3,10 @@ package com.bettafish.insight;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.openai.OpenAiChatModel;
+import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import com.bettafish.common.api.AnalysisRequest;
@@ -31,7 +35,7 @@ public class InsightAgent implements AnalysisEngine {
     }
 
     InsightAgent(SentimentAnalysisClient sentimentAnalysisClient) {
-        this(sentimentAnalysisClient, new MediaCrawlerDbTool(), new KeywordOptimizer());
+        this(sentimentAnalysisClient, new MediaCrawlerDbTool(), defaultKeywordOptimizer());
     }
 
     InsightAgent(
@@ -42,6 +46,14 @@ public class InsightAgent implements AnalysisEngine {
         this.sentimentAnalysisClient = sentimentAnalysisClient;
         this.mediaCrawlerDbTool = mediaCrawlerDbTool;
         this.keywordOptimizer = keywordOptimizer;
+    }
+
+    private static KeywordOptimizer defaultKeywordOptimizer() {
+        OpenAiChatModel model = OpenAiChatModel.builder()
+            .openAiApi(OpenAiApi.builder().apiKey("test-key").baseUrl("https://example.com").build())
+            .defaultOptions(OpenAiChatOptions.builder().model("keyword-optimizer-test").build())
+            .build();
+        return new KeywordOptimizer(ChatClient.builder(model).build());
     }
 
     @Override
@@ -70,5 +82,10 @@ public class InsightAgent implements AnalysisEngine {
                 "sentimentConfidence", sentimentConfidence
             )
         );
+    }
+
+    @Override
+    public String engineName() {
+        return EngineType.INSIGHT.name();
     }
 }

@@ -7,5 +7,5 @@ public record AgentSpeechEvent(
     String agentName,
     String content,
     Instant occurredAt
-) {
+) implements AnalysisEvent {
 }

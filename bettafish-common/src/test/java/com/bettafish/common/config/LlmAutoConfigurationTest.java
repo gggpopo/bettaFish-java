@@ -15,7 +15,7 @@ class LlmAutoConfigurationTest {
         .withUserConfiguration(LlmAutoConfiguration.class);
 
     @Test
-    void createsQueryMediaAndInsightClientsWhenApiKeysAreConfigured() {
+    void createsAllDedicatedClientsWhenApiKeysAreConfigured() {
         contextRunner.withPropertyValues(
             "bettafish.llm.query.enabled=true",
             "bettafish.llm.query.api-key=query-key",
@@ -25,24 +25,48 @@ class LlmAutoConfigurationTest {
             "bettafish.llm.media.model-name=gemini-2.5-flash",
             "bettafish.llm.insight.enabled=true",
             "bettafish.llm.insight.api-key=insight-key",
-            "bettafish.llm.insight.temperature=0.4"
+            "bettafish.llm.insight.temperature=0.4",
+            "bettafish.llm.report.enabled=true",
+            "bettafish.llm.report.api-key=report-key",
+            "bettafish.llm.forum-host.enabled=true",
+            "bettafish.llm.forum-host.api-key=forum-key",
+            "bettafish.llm.keyword-optimizer.enabled=true",
+            "bettafish.llm.keyword-optimizer.api-key=keyword-key",
+            "bettafish.llm.mindspider.enabled=true",
+            "bettafish.llm.mindspider.api-key=mindspider-key"
         ).run(context -> {
             assertThat(context).hasBean("queryChatClient");
             assertThat(context).hasBean("mediaChatClient");
             assertThat(context).hasBean("insightChatClient");
+            assertThat(context).hasBean("reportChatClient");
+            assertThat(context).hasBean("forumHostChatClient");
+            assertThat(context).hasBean("keywordOptimizerChatClient");
+            assertThat(context).hasBean("mindspiderChatClient");
             assertThat(context).hasSingleBean(BettaFishProperties.class);
 
             assertThat(context).hasBean("queryChatModel");
             assertThat(context).hasBean("mediaChatModel");
             assertThat(context).hasBean("insightChatModel");
+            assertThat(context).hasBean("reportChatModel");
+            assertThat(context).hasBean("forumHostChatModel");
+            assertThat(context).hasBean("keywordOptimizerChatModel");
+            assertThat(context).hasBean("mindspiderChatModel");
 
             assertThat(context.getBean("queryChatClient")).isInstanceOf(ChatClient.class);
             assertThat(context.getBean("mediaChatClient")).isInstanceOf(ChatClient.class);
             assertThat(context.getBean("insightChatClient")).isInstanceOf(ChatClient.class);
+            assertThat(context.getBean("reportChatClient")).isInstanceOf(ChatClient.class);
+            assertThat(context.getBean("forumHostChatClient")).isInstanceOf(ChatClient.class);
+            assertThat(context.getBean("keywordOptimizerChatClient")).isInstanceOf(ChatClient.class);
+            assertThat(context.getBean("mindspiderChatClient")).isInstanceOf(ChatClient.class);
 
             OpenAiChatModel queryModel = context.getBean("queryChatModel", OpenAiChatModel.class);
             OpenAiChatModel mediaModel = context.getBean("mediaChatModel", OpenAiChatModel.class);
             OpenAiChatModel insightModel = context.getBean("insightChatModel", OpenAiChatModel.class);
+            OpenAiChatModel reportModel = context.getBean("reportChatModel", OpenAiChatModel.class);
+            OpenAiChatModel forumHostModel = context.getBean("forumHostChatModel", OpenAiChatModel.class);
+            OpenAiChatModel keywordOptimizerModel = context.getBean("keywordOptimizerChatModel", OpenAiChatModel.class);
+            OpenAiChatModel mindspiderModel = context.getBean("mindspiderChatModel", OpenAiChatModel.class);
             BettaFishProperties properties = context.getBean(BettaFishProperties.class);
 
             assertThat(options(queryModel).getModel()).isEqualTo("deepseek-chat");
@@ -59,6 +83,11 @@ class LlmAutoConfigurationTest {
             assertThat(options(insightModel).getTemperature()).isEqualTo(0.4);
             assertThat(baseUrl(insightModel)).isEqualTo("https://api.moonshot.cn/v1");
             assertThat(properties.getLlm().getInsight().getTemperature()).isEqualTo(0.4);
+
+            assertThat(options(reportModel).getModel()).isEqualTo("gemini-2.5-pro");
+            assertThat(options(forumHostModel).getModel()).isEqualTo("Qwen/Qwen3-235B-A22B");
+            assertThat(options(keywordOptimizerModel).getModel()).isEqualTo("Qwen/Qwen3-235B-A22B");
+            assertThat(options(mindspiderModel).getModel()).isEqualTo("deepseek-chat");
         });
     }
 
@@ -68,9 +97,17 @@ class LlmAutoConfigurationTest {
             assertThat(context).doesNotHaveBean("queryChatClient");
             assertThat(context).doesNotHaveBean("mediaChatClient");
             assertThat(context).doesNotHaveBean("insightChatClient");
+            assertThat(context).doesNotHaveBean("reportChatClient");
+            assertThat(context).doesNotHaveBean("forumHostChatClient");
+            assertThat(context).doesNotHaveBean("keywordOptimizerChatClient");
+            assertThat(context).doesNotHaveBean("mindspiderChatClient");
             assertThat(context).doesNotHaveBean("queryChatModel");
             assertThat(context).doesNotHaveBean("mediaChatModel");
             assertThat(context).doesNotHaveBean("insightChatModel");
+            assertThat(context).doesNotHaveBean("reportChatModel");
+            assertThat(context).doesNotHaveBean("forumHostChatModel");
+            assertThat(context).doesNotHaveBean("keywordOptimizerChatModel");
+            assertThat(context).doesNotHaveBean("mindspiderChatModel");
         });
     }
 
@@ -79,14 +116,26 @@ class LlmAutoConfigurationTest {
         contextRunner.withPropertyValues(
             "bettafish.llm.query.api-key=query-key",
             "bettafish.llm.media.api-key=media-key",
-            "bettafish.llm.insight.api-key=insight-key"
+            "bettafish.llm.insight.api-key=insight-key",
+            "bettafish.llm.report.api-key=report-key",
+            "bettafish.llm.forum-host.api-key=forum-key",
+            "bettafish.llm.keyword-optimizer.api-key=keyword-key",
+            "bettafish.llm.mindspider.api-key=mindspider-key"
         ).run(context -> {
             assertThat(context).doesNotHaveBean("queryChatClient");
             assertThat(context).doesNotHaveBean("mediaChatClient");
             assertThat(context).doesNotHaveBean("insightChatClient");
+            assertThat(context).doesNotHaveBean("reportChatClient");
+            assertThat(context).doesNotHaveBean("forumHostChatClient");
+            assertThat(context).doesNotHaveBean("keywordOptimizerChatClient");
+            assertThat(context).doesNotHaveBean("mindspiderChatClient");
             assertThat(context).doesNotHaveBean("queryChatModel");
             assertThat(context).doesNotHaveBean("mediaChatModel");
             assertThat(context).doesNotHaveBean("insightChatModel");
+            assertThat(context).doesNotHaveBean("reportChatModel");
+            assertThat(context).doesNotHaveBean("forumHostChatModel");
+            assertThat(context).doesNotHaveBean("keywordOptimizerChatModel");
+            assertThat(context).doesNotHaveBean("mindspiderChatModel");
         });
     }
 

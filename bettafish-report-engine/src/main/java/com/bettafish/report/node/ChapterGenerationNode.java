@@ -1,0 +1,136 @@
+package com.bettafish.report.node;
+
+import java.util.ArrayList;
+import java.util.List;
+import org.springframework.stereotype.Component;
+import com.bettafish.common.api.DocumentBlock;
+import com.bettafish.common.llm.LlmGateway;
+import com.bettafish.report.ir.ChapterGenerationResult;
+import com.bettafish.report.ir.ChapterSpec;
+import com.bettafish.report.prompt.ReportPrompts;
+
+@Component
+public class ChapterGenerationNode {
+
+    static final String REPORT_CLIENT = "reportChatClient";
+    static final int DEFAULT_MAX_ATTEMPTS = 2;
+    static final int DEFAULT_MIN_DENSITY = 40;
+
+    private final LlmGateway llmGateway;
+    private final int maxAttempts;
+    private final int minDensity;
+
+    public ChapterGenerationNode(LlmGateway llmGateway) {
+        this(llmGateway, DEFAULT_MAX_ATTEMPTS, DEFAULT_MIN_DENSITY);
+    }
+
+    ChapterGenerationNode(LlmGateway llmGateway, int maxAttempts, int minDensity) {
+        this.llmGateway = llmGateway;
+        this.maxAttempts = maxAttempts;
+        this.minDensity = minDensity;
+    }
+
+    public ChapterGenerationResult generate(String query, ChapterSpec chapterSpec) {
+        String lastFailure = "unknown";
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            ChapterDraftResponse response = llmGateway.callJson(
+                REPORT_CLIENT,
+                ReportPrompts.CHAPTER_GENERATION_SYSTEM_PROMPT,
+                ReportPrompts.buildChapterGenerationUserPrompt(query, chapterSpec, attempt, attempt == 1 ? null : lastFailure),
+                ChapterDraftResponse.class,
+                () -> new ChapterDraftResponse(List.of())
+            );
+
+            List<DocumentBlock> normalizedBlocks = normalizeBlocks(chapterSpec, response.blocks());
+            String validationFailure = validateBlocks(normalizedBlocks);
+            if (validationFailure == null) {
+                return new ChapterGenerationResult(chapterSpec, normalizedBlocks, false, attempt);
+            }
+            lastFailure = validationFailure;
+        }
+
+        return new ChapterGenerationResult(chapterSpec, placeholderBlocks(chapterSpec, lastFailure), true, maxAttempts);
+    }
+
+    private List<DocumentBlock> normalizeBlocks(ChapterSpec chapterSpec, List<DocumentBlock> blocks) {
+        List<DocumentBlock> normalized = new ArrayList<>();
+        normalized.add(new DocumentBlock.HeadingBlock(2, chapterSpec.title()));
+        for (DocumentBlock block : blocks) {
+            if (block instanceof DocumentBlock.HeadingBlock headingBlock && headingBlock.level() <= 2) {
+                continue;
+            }
+            normalized.add(block);
+        }
+        return List.copyOf(normalized);
+    }
+
+    private String validateBlocks(List<DocumentBlock> blocks) {
+        if (blocks.size() <= 1) {
+            return "chapter contains no body blocks";
+        }
+
+        int density = 0;
+        for (int index = 1; index < blocks.size(); index++) {
+            DocumentBlock block = blocks.get(index);
+            String error = validateBlock(block);
+            if (error != null) {
+                return error;
+            }
+            density += visibleLength(block);
+        }
+
+        if (density < minDensity) {
+            return "chapter density below threshold: " + density;
+        }
+        return null;
+    }
+
+    private String validateBlock(DocumentBlock block) {
+        return switch (block) {
+            case DocumentBlock.ParagraphBlock paragraphBlock ->
+                isBlank(paragraphBlock.text()) ? "paragraph text is blank" : null;
+            case DocumentBlock.ListBlock listBlock ->
+                listBlock.items().isEmpty() ? "list items are empty" : null;
+            case DocumentBlock.QuoteBlock quoteBlock ->
+                isBlank(quoteBlock.text()) ? "quote text is blank" : null;
+            case DocumentBlock.TableBlock tableBlock ->
+                tableBlock.headers().isEmpty() ? "table headers are empty" : null;
+            case DocumentBlock.CodeBlock codeBlock ->
+                isBlank(codeBlock.code()) ? "code block is blank" : null;
+            case DocumentBlock.LinkBlock linkBlock ->
+                isBlank(linkBlock.text()) || isBlank(linkBlock.href()) ? "link is incomplete" : null;
+            case DocumentBlock.HeadingBlock ignored -> null;
+        };
+    }
+
+    private int visibleLength(DocumentBlock block) {
+        return switch (block) {
+            case DocumentBlock.ParagraphBlock paragraphBlock -> paragraphBlock.text().trim().length();
+            case DocumentBlock.ListBlock listBlock -> listBlock.items().stream().mapToInt(String::length).sum();
+            case DocumentBlock.QuoteBlock quoteBlock -> quoteBlock.text().trim().length();
+            case DocumentBlock.TableBlock tableBlock ->
+                tableBlock.headers().stream().mapToInt(String::length).sum()
+                    + tableBlock.rows().stream().flatMap(List::stream).mapToInt(String::length).sum();
+            case DocumentBlock.CodeBlock codeBlock -> codeBlock.code().trim().length();
+            case DocumentBlock.LinkBlock linkBlock -> linkBlock.text().trim().length() + linkBlock.href().trim().length();
+            case DocumentBlock.HeadingBlock ignored -> 0;
+        };
+    }
+
+    private List<DocumentBlock> placeholderBlocks(ChapterSpec chapterSpec, String failureReason) {
+        return List.of(
+            new DocumentBlock.HeadingBlock(2, chapterSpec.title()),
+            new DocumentBlock.ParagraphBlock("本章节生成失败，已写入占位内容。原因：" + failureReason + "。")
+        );
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    public record ChapterDraftResponse(List<DocumentBlock> blocks) {
+        public ChapterDraftResponse {
+            blocks = List.copyOf(blocks);
+        }
+    }
+}

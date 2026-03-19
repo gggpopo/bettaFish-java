@@ -56,6 +56,54 @@ public class LlmAutoConfiguration {
         return ChatClient.builder(chatModel).build();
     }
 
+    @Bean("reportChatModel")
+    @ConditionalOnProperty(prefix = "bettafish.llm.report", name = "enabled", havingValue = "true")
+    public OpenAiChatModel reportChatModel() {
+        return buildChatModel(properties.getLlm().getReport());
+    }
+
+    @Bean("reportChatClient")
+    @ConditionalOnProperty(prefix = "bettafish.llm.report", name = "enabled", havingValue = "true")
+    public ChatClient reportChatClient(@Qualifier("reportChatModel") OpenAiChatModel chatModel) {
+        return ChatClient.builder(chatModel).build();
+    }
+
+    @Bean("forumHostChatModel")
+    @ConditionalOnProperty(prefix = "bettafish.llm.forum-host", name = "enabled", havingValue = "true")
+    public OpenAiChatModel forumHostChatModel() {
+        return buildChatModel(properties.getLlm().getForumHost());
+    }
+
+    @Bean("forumHostChatClient")
+    @ConditionalOnProperty(prefix = "bettafish.llm.forum-host", name = "enabled", havingValue = "true")
+    public ChatClient forumHostChatClient(@Qualifier("forumHostChatModel") OpenAiChatModel chatModel) {
+        return ChatClient.builder(chatModel).build();
+    }
+
+    @Bean("keywordOptimizerChatModel")
+    @ConditionalOnProperty(prefix = "bettafish.llm.keyword-optimizer", name = "enabled", havingValue = "true")
+    public OpenAiChatModel keywordOptimizerChatModel() {
+        return buildChatModel(properties.getLlm().getKeywordOptimizer());
+    }
+
+    @Bean("keywordOptimizerChatClient")
+    @ConditionalOnProperty(prefix = "bettafish.llm.keyword-optimizer", name = "enabled", havingValue = "true")
+    public ChatClient keywordOptimizerChatClient(@Qualifier("keywordOptimizerChatModel") OpenAiChatModel chatModel) {
+        return ChatClient.builder(chatModel).build();
+    }
+
+    @Bean("mindspiderChatModel")
+    @ConditionalOnProperty(prefix = "bettafish.llm.mindspider", name = "enabled", havingValue = "true")
+    public OpenAiChatModel mindspiderChatModel() {
+        return buildChatModel(properties.getLlm().getMindspider());
+    }
+
+    @Bean("mindspiderChatClient")
+    @ConditionalOnProperty(prefix = "bettafish.llm.mindspider", name = "enabled", havingValue = "true")
+    public ChatClient mindspiderChatClient(@Qualifier("mindspiderChatModel") OpenAiChatModel chatModel) {
+        return ChatClient.builder(chatModel).build();
+    }
+
     private OpenAiChatModel buildChatModel(BettaFishProperties.ClientConfig config) {
         OpenAiApi openAiApi = OpenAiApi.builder()
             .apiKey(config.getApiKey())

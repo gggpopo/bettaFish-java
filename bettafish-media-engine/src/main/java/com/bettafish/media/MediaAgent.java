@@ -35,4 +35,9 @@ public class MediaAgent implements AnalysisEngine {
             Map.of("mode", "bocha-tool")
         );
     }
+
+    @Override
+    public String engineName() {
+        return EngineType.MEDIA.name();
+    }
 }

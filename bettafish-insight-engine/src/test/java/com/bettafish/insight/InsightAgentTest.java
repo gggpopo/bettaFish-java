@@ -5,14 +5,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
 import org.junit.jupiter.api.Test;
+import org.springframework.ai.chat.client.ChatClient;
 import com.bettafish.common.api.AnalysisRequest;
+import com.bettafish.insight.keyword.KeywordOptimizer;
 
 class InsightAgentTest {
 
     @Test
     void includesSentimentSummaryInEngineResult() {
         InsightAgent agent = new InsightAgent(
-            text -> new SentimentSignal("POSITIVE", 0.85, true)
+            text -> new SentimentSignal("POSITIVE", 0.85, true),
+            new com.bettafish.insight.tool.MediaCrawlerDbTool(),
+            new KeywordOptimizer(ChatClient.builder(mockKeywordModel()).build())
         );
 
         var result = agent.analyze(new AnalysisRequest(
@@ -26,5 +30,12 @@ class InsightAgentTest {
         assertEquals("sentiment-mcp", result.metadata().get("mode"));
         assertTrue(result.summary().contains("POSITIVE"));
         assertTrue(result.keyPoints().contains("Dominant sentiment: POSITIVE"));
+    }
+
+    private static org.springframework.ai.openai.OpenAiChatModel mockKeywordModel() {
+        return org.springframework.ai.openai.OpenAiChatModel.builder()
+            .openAiApi(org.springframework.ai.openai.api.OpenAiApi.builder().apiKey("test").baseUrl("https://example.com").build())
+            .defaultOptions(org.springframework.ai.openai.OpenAiChatOptions.builder().model("keyword-model").build())
+            .build();
     }
 }
