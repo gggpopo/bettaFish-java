@@ -1,6 +1,8 @@
 package com.bettafish.common.runtime;
 
-public class StateMachineRunner<N extends Enum<N> & Node<N, C>, C extends NodeContext<N>> {
+import com.bettafish.common.engine.ExecutionContext;
+
+public class StateMachineRunner<C extends NodeContext> {
 
     private static final int DEFAULT_MAX_STEPS = 10_000;
 
@@ -14,13 +16,17 @@ public class StateMachineRunner<N extends Enum<N> & Node<N, C>, C extends NodeCo
         this.maxSteps = maxSteps;
     }
 
-    public C run(C context, N startNode) {
-        N node = startNode;
+    public C run(C context, Node<C> startNode) {
+        Node<C> node = startNode;
         int steps = 0;
         while (node != null) {
             steps++;
             if (steps > maxSteps) {
                 throw new IllegalStateException("State machine exceeded max steps: " + maxSteps);
+            }
+            ExecutionContext executionContext = context.getService(ExecutionContext.class);
+            if (executionContext != null) {
+                executionContext.throwIfCancellationRequested();
             }
             context.enterNode(node);
             node = node.execute(context);

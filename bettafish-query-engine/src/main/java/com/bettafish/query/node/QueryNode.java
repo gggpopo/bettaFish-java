@@ -2,41 +2,72 @@ package com.bettafish.query.node;
 
 import com.bettafish.common.runtime.Node;
 
-public enum QueryNode implements Node<QueryNode, QueryNodeContext> {
-    PLAN_SEARCH {
+public final class QueryNode {
+
+    public static final Node<QueryNodeContext> PLAN_PARAGRAPHS = new PlanParagraphsNode();
+    public static final Node<QueryNodeContext> FIRST_SEARCH_DECISION = new FirstSearchDecisionNode();
+    public static final Node<QueryNodeContext> TOOL_EXECUTE = new ToolExecuteNode();
+    public static final Node<QueryNodeContext> FIRST_SUMMARY = new FirstSummaryNode();
+    public static final Node<QueryNodeContext> REFLECTION_DECISION = new ReflectionDecisionNode();
+    public static final Node<QueryNodeContext> REFLECTION_SUMMARY = new ReflectionSummaryNode();
+    public static final Node<QueryNodeContext> FORMAT_REPORT = new FormatReportNode();
+
+    private QueryNode() {
+    }
+
+    private static final class PlanParagraphsNode implements Node<QueryNodeContext> {
+
         @Override
-        public QueryNode execute(QueryNodeContext context) {
+        public Node<QueryNodeContext> execute(QueryNodeContext context) {
             return context.getAgent().planParagraphs(context);
         }
-    },
-    EXECUTE_SEARCH {
+    }
+
+    private static final class FirstSearchDecisionNode implements Node<QueryNodeContext> {
+
         @Override
-        public QueryNode execute(QueryNodeContext context) {
-            return context.getAgent().executeSearch(context);
+        public Node<QueryNodeContext> execute(QueryNodeContext context) {
+            return context.getAgent().decideFirstSearch(context);
         }
-    },
-    SUMMARIZE_FINDINGS {
+    }
+
+    private static final class ToolExecuteNode implements Node<QueryNodeContext> {
+
         @Override
-        public QueryNode execute(QueryNodeContext context) {
-            return context.getAgent().summarizeFindings(context);
+        public Node<QueryNodeContext> execute(QueryNodeContext context) {
+            return context.getAgent().executeTool(context);
         }
-    },
-    REFLECT_ON_GAPS {
+    }
+
+    private static final class FirstSummaryNode implements Node<QueryNodeContext> {
+
         @Override
-        public QueryNode execute(QueryNodeContext context) {
-            return context.getAgent().reflectOnGaps(context);
+        public Node<QueryNodeContext> execute(QueryNodeContext context) {
+            return context.getAgent().summarizeFirstSearch(context);
         }
-    },
-    REFINE_SEARCH {
+    }
+
+    private static final class ReflectionDecisionNode implements Node<QueryNodeContext> {
+
         @Override
-        public QueryNode execute(QueryNodeContext context) {
-            return context.getAgent().refineSearch(context);
+        public Node<QueryNodeContext> execute(QueryNodeContext context) {
+            return context.getAgent().decideReflection(context);
         }
-    },
-    FINALIZE_REPORT {
+    }
+
+    private static final class ReflectionSummaryNode implements Node<QueryNodeContext> {
+
         @Override
-        public QueryNode execute(QueryNodeContext context) {
-            return context.getAgent().finalizeReport(context);
+        public Node<QueryNodeContext> execute(QueryNodeContext context) {
+            return context.getAgent().summarizeReflection(context);
+        }
+    }
+
+    private static final class FormatReportNode implements Node<QueryNodeContext> {
+
+        @Override
+        public Node<QueryNodeContext> execute(QueryNodeContext context) {
+            return context.getAgent().formatReport(context);
         }
     }
 }

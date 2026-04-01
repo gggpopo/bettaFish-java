@@ -24,8 +24,22 @@ public class ForumHost {
             ForumPrompts.HOST_SYSTEM_PROMPT,
             ForumPrompts.buildGuidanceUserPrompt(transcript, revision),
             ForumGuidance.class,
+            this::validateGuidance,
             () -> defaultGuidance(transcript, revision)
         );
+    }
+
+    private LlmGateway.ValidationResult validateGuidance(ForumGuidance guidance) {
+        if (guidance == null) {
+            return LlmGateway.ValidationResult.invalid("forum guidance must not be null");
+        }
+        if (guidance.revision() <= 0) {
+            return LlmGateway.ValidationResult.invalid("forum guidance revision must be positive");
+        }
+        if (guidance.promptAddendum() == null || guidance.promptAddendum().isBlank()) {
+            return LlmGateway.ValidationResult.invalid("forum guidance promptAddendum must not be blank");
+        }
+        return LlmGateway.ValidationResult.valid();
     }
 
     private ForumGuidance defaultGuidance(List<ForumMessage> transcript, int revision) {

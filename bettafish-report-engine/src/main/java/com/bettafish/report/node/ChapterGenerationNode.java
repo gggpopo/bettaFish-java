@@ -38,6 +38,7 @@ public class ChapterGenerationNode {
                 ReportPrompts.CHAPTER_GENERATION_SYSTEM_PROMPT,
                 ReportPrompts.buildChapterGenerationUserPrompt(query, chapterSpec, attempt, attempt == 1 ? null : lastFailure),
                 ChapterDraftResponse.class,
+                this::validateDraftResponse,
                 () -> new ChapterDraftResponse(List.of())
             );
 
@@ -122,6 +123,20 @@ public class ChapterGenerationNode {
             new DocumentBlock.HeadingBlock(2, chapterSpec.title()),
             new DocumentBlock.ParagraphBlock("本章节生成失败，已写入占位内容。原因：" + failureReason + "。")
         );
+    }
+
+    private LlmGateway.ValidationResult validateDraftResponse(ChapterDraftResponse response) {
+        if (response == null) {
+            return LlmGateway.ValidationResult.invalid("chapter draft response must not be null");
+        }
+        if (response.blocks() == null) {
+            return LlmGateway.ValidationResult.invalid("chapter draft blocks must not be null");
+        }
+        boolean hasNullBlock = response.blocks().stream().anyMatch(block -> block == null);
+        if (hasNullBlock) {
+            return LlmGateway.ValidationResult.invalid("chapter draft blocks must not contain null entries");
+        }
+        return LlmGateway.ValidationResult.valid();
     }
 
     private boolean isBlank(String value) {

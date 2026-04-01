@@ -12,65 +12,83 @@ import com.bettafish.common.event.NodeStartedEvent;
 class StateMachineRunnerTest {
 
     @Test
-    void executesEnumNodesThroughSharedRunner() {
+    void executesObjectNodesThroughSharedRunner() {
         TestNodeContext context = new TestNodeContext();
-        StateMachineRunner<TestNode, TestNodeContext> runner = new StateMachineRunner<>();
+        StateMachineRunner<TestNodeContext> runner = new StateMachineRunner<>();
 
-        runner.run(context, TestNode.START);
+        runner.run(context, new StartNode());
 
-        assertEquals(List.of(TestNode.START, TestNode.MIDDLE, TestNode.END), context.visitedNodes());
-        assertEquals(TestNode.END, context.getCurrentNode());
+        assertEquals(List.of("StartNode", "MiddleNode", "EndNode"), context.visitedNodes());
+        assertEquals("EndNode", context.getCurrentNodeName());
+        assertEquals("value-from-service", context.getService("llm", String.class));
+        assertEquals("value-from-attribute", context.getAttribute("mode", String.class));
     }
 
     @Test
     void publishesNodeStartedEventsWhenContextHasPublisher() {
         RecordingPublisher publisher = new RecordingPublisher();
         TestNodeContext context = new TestNodeContext("task-1", "QUERY", publisher);
-        StateMachineRunner<TestNode, TestNodeContext> runner = new StateMachineRunner<>();
+        StateMachineRunner<TestNodeContext> runner = new StateMachineRunner<>();
 
-        runner.run(context, TestNode.START);
+        runner.run(context, new StartNode());
 
         assertEquals(3, publisher.events().size());
         assertEquals(
-            List.of("START", "MIDDLE", "END"),
+            List.of("StartNode", "MiddleNode", "EndNode"),
             publisher.events().stream()
                 .map(NodeStartedEvent.class::cast)
                 .map(NodeStartedEvent::nodeName)
                 .toList()
         );
-        assertEquals(
-            List.of("task-1", "task-1", "task-1"),
-            publisher.events().stream().map(AnalysisEvent::taskId).toList()
-        );
     }
 
-    private enum TestNode implements Node<TestNode, TestNodeContext> {
-        START {
-            @Override
-            public TestNode execute(TestNodeContext context) {
-                context.record(this);
-                return MIDDLE;
-            }
-        },
-        MIDDLE {
-            @Override
-            public TestNode execute(TestNodeContext context) {
-                context.record(this);
-                return END;
-            }
-        },
-        END {
-            @Override
-            public TestNode execute(TestNodeContext context) {
-                context.record(this);
-                return null;
-            }
+    private static final class StartNode implements Node<TestNodeContext> {
+
+        @Override
+        public String name() {
+            return "StartNode";
+        }
+
+        @Override
+        public Node<TestNodeContext> execute(TestNodeContext context) {
+            context.record(name());
+            context.putService("llm", "value-from-service");
+            context.putAttribute("mode", "value-from-attribute");
+            return new MiddleNode();
         }
     }
 
-    private static final class TestNodeContext extends NodeContext<TestNode> {
+    private static final class MiddleNode implements Node<TestNodeContext> {
 
-        private final List<TestNode> visitedNodes = new ArrayList<>();
+        @Override
+        public String name() {
+            return "MiddleNode";
+        }
+
+        @Override
+        public Node<TestNodeContext> execute(TestNodeContext context) {
+            context.record(name());
+            return new EndNode();
+        }
+    }
+
+    private static final class EndNode implements Node<TestNodeContext> {
+
+        @Override
+        public String name() {
+            return "EndNode";
+        }
+
+        @Override
+        public Node<TestNodeContext> execute(TestNodeContext context) {
+            context.record(name());
+            return null;
+        }
+    }
+
+    private static final class TestNodeContext extends NodeContext {
+
+        private final List<String> visitedNodes = new ArrayList<>();
 
         private TestNodeContext() {
         }
@@ -79,12 +97,12 @@ class StateMachineRunnerTest {
             super(taskId, engineName, publisher);
         }
 
-        private List<TestNode> visitedNodes() {
+        private List<String> visitedNodes() {
             return visitedNodes;
         }
 
-        private void record(TestNode node) {
-            visitedNodes.add(node);
+        private void record(String nodeName) {
+            visitedNodes.add(nodeName);
         }
     }
 

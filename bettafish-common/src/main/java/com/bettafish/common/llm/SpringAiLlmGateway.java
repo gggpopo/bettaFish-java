@@ -7,7 +7,6 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Component;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.bettafish.common.util.JsonParser;
 
 @Component
 public class SpringAiLlmGateway implements LlmGateway {
@@ -18,11 +17,20 @@ public class SpringAiLlmGateway implements LlmGateway {
         """;
 
     private final Map<String, ChatClient> chatClients;
-    private final ObjectMapper objectMapper;
+    private final JsonOutputParser jsonOutputParser;
 
     public SpringAiLlmGateway(Map<String, ChatClient> chatClients, ObjectMapper objectMapper) {
         this.chatClients = chatClients;
-        this.objectMapper = objectMapper;
+        this.jsonOutputParser = new JsonOutputParser(objectMapper);
+    }
+
+    @Override
+    public String callText(String clientName, String systemPrompt, String userPrompt, Supplier<String> fallbackSupplier) {
+        try {
+            return requestContent(clientName, systemPrompt, userPrompt, false);
+        } catch (RuntimeException ex) {
+            return fallbackOrThrow(fallbackSupplier, ex);
+        }
     }
 
     @Override
@@ -32,7 +40,7 @@ public class SpringAiLlmGateway implements LlmGateway {
             clientName,
             systemPrompt,
             userPrompt,
-            raw -> JsonParser.parse(raw, responseType),
+            raw -> jsonOutputParser.parse(raw, responseType),
             fallbackSupplier
         );
     }
@@ -44,36 +52,16 @@ public class SpringAiLlmGateway implements LlmGateway {
             clientName,
             systemPrompt,
             userPrompt,
-            raw -> JsonParser.parse(raw, responseType),
+            raw -> jsonOutputParser.parse(raw, responseType),
             fallbackSupplier
         );
     }
 
     private <T> T execute(String clientName, String systemPrompt, String userPrompt,
-                          Function<String, JsonParser.ParseResult<T>> parser, Supplier<T> fallbackSupplier) {
-        ChatClient chatClient = chatClients.get(clientName);
-        if (chatClient == null) {
-            return fallbackOrThrow(
-                fallbackSupplier,
-                new IllegalArgumentException("No ChatClient registered for: " + clientName)
-            );
-        }
-
+                          Function<String, JsonOutputParser.ParseResult<T>> parser, Supplier<T> fallbackSupplier) {
         try {
-            String raw = chatClient.prompt()
-                .system(normalizeSystemPrompt(systemPrompt))
-                .user(userPrompt)
-                .call()
-                .content();
-
-            if (raw == null || raw.isBlank()) {
-                return fallbackOrThrow(
-                    fallbackSupplier,
-                    new IllegalStateException("LLM returned empty content for client: " + clientName)
-                );
-            }
-
-            JsonParser.ParseResult<T> parseResult = parser.apply(raw);
+            String raw = requestContent(clientName, systemPrompt, userPrompt, true);
+            JsonOutputParser.ParseResult<T> parseResult = parser.apply(raw);
             if (parseResult.success()) {
                 return parseResult.value();
             }
@@ -84,7 +72,26 @@ public class SpringAiLlmGateway implements LlmGateway {
         }
     }
 
-    private String normalizeSystemPrompt(String systemPrompt) {
+    private String requestContent(String clientName, String systemPrompt, String userPrompt, boolean jsonOnly) {
+        ChatClient chatClient = chatClients.get(clientName);
+        if (chatClient == null) {
+            throw new IllegalArgumentException("No ChatClient registered for: " + clientName);
+        }
+
+        String normalizedSystemPrompt = jsonOnly ? normalizeJsonSystemPrompt(systemPrompt) : systemPrompt;
+        String raw = chatClient.prompt()
+            .system(normalizedSystemPrompt)
+            .user(userPrompt)
+            .call()
+            .content();
+
+        if (raw == null || raw.isBlank()) {
+            throw new IllegalStateException("LLM returned empty content for client: " + clientName);
+        }
+        return raw;
+    }
+
+    private String normalizeJsonSystemPrompt(String systemPrompt) {
         return systemPrompt == null || systemPrompt.isBlank()
             ? JSON_ONLY_SUFFIX
             : systemPrompt + "\n\n" + JSON_ONLY_SUFFIX;
@@ -97,16 +104,18 @@ public class SpringAiLlmGateway implements LlmGateway {
         throw exception;
     }
 
-    private IllegalStateException invalidJson(String clientName, JsonParser.ParseResult<?> parseResult) {
+    private IllegalStateException invalidJson(String clientName, JsonOutputParser.ParseResult<?> parseResult) {
         String extractedPreview = preview(parseResult.extractedJson());
         String repairedPreview = preview(parseResult.repairedJson());
+        String rawPreview = preview(parseResult.rawInput());
         return new IllegalStateException(
-            "LLM returned invalid JSON for client %s: %s | extracted=%s | repaired=%s | repairs=%s".formatted(
+            "LLM returned invalid JSON for client %s: %s | extracted=%s | repaired=%s | repairs=%s | raw=%s".formatted(
                 clientName,
                 parseResult.errorDetail(),
                 extractedPreview,
                 repairedPreview,
-                parseResult.repairActions()
+                parseResult.repairActions(),
+                rawPreview
             )
         );
     }

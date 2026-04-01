@@ -4,10 +4,16 @@ import com.bettafish.common.api.AnalysisRequest;
 import com.bettafish.common.event.AnalysisEventPublisher;
 import com.bettafish.common.model.AgentState;
 import com.bettafish.common.model.ParagraphState;
+import com.bettafish.common.runtime.Node;
 import com.bettafish.common.runtime.NodeContext;
 import com.bettafish.query.QueryAgent;
 
-public class QueryNodeContext extends NodeContext<QueryNode> {
+public class QueryNodeContext extends NodeContext {
+
+    public enum SummaryStage {
+        FIRST,
+        REFLECTION
+    }
 
     private final QueryAgent agent;
     private final AnalysisRequest request;
@@ -18,6 +24,7 @@ public class QueryNodeContext extends NodeContext<QueryNode> {
     private int pendingReflectionRound = -1;
     private String pendingSearchQuery = "";
     private String pendingSearchReasoning = "";
+    private SummaryStage pendingSummaryStage = SummaryStage.FIRST;
 
     public QueryNodeContext(QueryAgent agent, AnalysisRequest request, AgentState state,
                             int maxReflections, int maxParagraphs) {
@@ -90,17 +97,25 @@ public class QueryNodeContext extends NodeContext<QueryNode> {
         this.pendingSearchReasoning = pendingSearchReasoning;
     }
 
+    public SummaryStage getPendingSummaryStage() {
+        return pendingSummaryStage;
+    }
+
+    public void setPendingSummaryStage(SummaryStage pendingSummaryStage) {
+        this.pendingSummaryStage = pendingSummaryStage;
+    }
+
     @Override
-    protected void onEnterNode(QueryNode node) {
+    protected void onEnterNode(Node<?> node) {
         super.onEnterNode(node);
         state.setCurrentNode(node.name());
-        state.setStatus(switch (node) {
-            case PLAN_SEARCH -> "PLANNING";
-            case EXECUTE_SEARCH -> "SEARCHING";
-            case SUMMARIZE_FINDINGS -> "SUMMARIZING";
-            case REFLECT_ON_GAPS -> "REFLECTING";
-            case REFINE_SEARCH -> "REFINING";
-            case FINALIZE_REPORT -> "FINALIZING";
+        state.setStatus(switch (node.name()) {
+            case "PlanParagraphsNode" -> "PLANNING";
+            case "FirstSearchDecisionNode", "ReflectionDecisionNode" -> "DECIDING";
+            case "ToolExecuteNode" -> "SEARCHING";
+            case "FirstSummaryNode", "ReflectionSummaryNode" -> "SUMMARIZING";
+            case "FormatReportNode" -> "FINALIZING";
+            default -> "RUNNING";
         });
     }
 }

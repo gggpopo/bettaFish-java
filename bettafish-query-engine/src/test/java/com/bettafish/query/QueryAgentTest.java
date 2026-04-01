@@ -4,6 +4,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.net.http.HttpClient;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -11,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.bettafish.common.api.AnalysisRequest;
 import com.bettafish.common.api.EngineType;
 import com.bettafish.common.event.AnalysisEvent;
@@ -25,14 +30,29 @@ import com.bettafish.common.model.AgentState;
 import com.bettafish.common.model.ForumGuidance;
 import com.bettafish.common.model.ForumMessage;
 import com.bettafish.query.tool.TavilySearchTool;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
 
 class QueryAgentTest {
 
     @Test
-    void runsFullInMemoryWorkflowAndPersistsIntermediateState() {
+    void runsFullInMemoryWorkflowAndPersistsIntermediateState() throws Exception {
         RecordingLlmGateway llmGateway = new RecordingLlmGateway();
         StaticForumGuidanceProvider guidanceProvider = new StaticForumGuidanceProvider();
-        QueryAgent agent = new QueryAgent(new TavilySearchTool(), llmGateway, guidanceProvider, 2, 3);
+        HttpServer tavilyServer = startServer();
+        QueryAgent agent = new QueryAgent(
+            new TavilySearchTool(
+                HttpClient.newHttpClient(),
+                new ObjectMapper(),
+                "http://localhost:" + tavilyServer.getAddress().getPort(),
+                "tvly-test-key",
+                3
+            ),
+            llmGateway,
+            guidanceProvider,
+            2,
+            3
+        );
         RecordingPublisher publisher = new RecordingPublisher();
         AnalysisRequest request = new AnalysisRequest(
             "task-1",
@@ -40,8 +60,28 @@ class QueryAgentTest {
             Instant.parse("2026-03-18T00:00:00Z")
         );
 
-        AgentState state = agent.runWorkflow(request, publisher);
+        AgentState state;
+        try {
+            state = agent.runWorkflow(request, publisher);
+        } finally {
+            tavilyServer.stop(0);
+        }
+        tavilyServer = startServer();
+        agent = new QueryAgent(
+            new TavilySearchTool(
+                HttpClient.newHttpClient(),
+                new ObjectMapper(),
+                "http://localhost:" + tavilyServer.getAddress().getPort(),
+                "tvly-test-key",
+                3
+            ),
+            llmGateway,
+            guidanceProvider,
+            2,
+            3
+        );
         var result = agent.analyze(request, publisher);
+        tavilyServer.stop(0);
 
         assertEquals("QUERY", state.getAgentName());
         assertEquals("COMPLETED", state.getStatus());
@@ -66,6 +106,7 @@ class QueryAgentTest {
         assertEquals("2", result.metadata().get("reflectionCount"));
         assertTrue(result.summary().contains("终稿"));
         assertTrue(result.sources().size() >= 3);
+        assertTrue(result.sources().stream().noneMatch(source -> source.url().contains("example.com")));
         assertTrue(llmGateway.calls().stream().allMatch(call -> call.clientName().equals("queryChatClient")));
         assertTrue(llmGateway.calls().size() >= 10);
         assertTrue(publisher.events().stream().anyMatch(NodeStartedEvent.class::isInstance));
@@ -73,18 +114,49 @@ class QueryAgentTest {
         assertTrue(publisher.events().stream().anyMatch(DeltaChunkEvent.class::isInstance));
         assertTrue(publisher.events().stream().anyMatch(AgentSpeechEvent.class::isInstance));
         assertEquals("task-1", publisher.events().getFirst().taskId());
+        assertTrue(publisher.events().stream()
+            .filter(NodeStartedEvent.class::isInstance)
+            .map(NodeStartedEvent.class::cast)
+            .map(NodeStartedEvent::nodeName)
+            .toList()
+            .containsAll(List.of(
+                "PlanParagraphsNode",
+                "FirstSearchDecisionNode",
+                "ToolExecuteNode",
+                "FirstSummaryNode",
+                "ReflectionDecisionNode",
+                "ReflectionSummaryNode",
+                "FormatReportNode"
+            )));
+        assertEquals("FormatReportNode", state.getCurrentNode());
         assertTrue(llmGateway.calls().stream()
             .map(Call::userPrompt)
             .anyMatch(prompt -> prompt.contains("请优先补齐证据缺口并追问争议来源")));
         assertEquals(1, state.getForumGuidanceHistory().size());
         assertEquals(1, state.getParagraphs().getFirst().getForumGuidanceRevisionApplied());
         assertTrue(state.getForumMessages().stream().anyMatch(message -> message.content().contains("请优先补齐证据缺口")));
+        assertTrue(state.getParagraphs().stream()
+            .flatMap(paragraph -> paragraph.getSearchHistory().stream())
+            .flatMap(searchRecord -> searchRecord.getSources().stream())
+            .noneMatch(source -> source.url().contains("example.com")));
+        int toolEventIndex = indexOf(publisher.events(), ToolCalledEvent.class);
+        int sourceDeltaIndex = indexOfSourceDelta(publisher.events(), toolEventIndex);
+        assertTrue(sourceDeltaIndex > toolEventIndex);
+        DeltaChunkEvent sourceDelta = (DeltaChunkEvent) publisher.events().get(sourceDeltaIndex);
+        assertEquals("search-sources", sourceDelta.channel());
+        assertTrue(sourceDelta.content().contains("https://news.sina.com.cn/"));
+        assertTrue(sourceDelta.content().contains("https://www.thepaper.cn/"));
     }
 
     @Test
     void downgradesToFallbackDefaultsWhenGatewayCannotReturnJson() {
         FallbackOnlyLlmGateway llmGateway = new FallbackOnlyLlmGateway();
-        QueryAgent agent = new QueryAgent(new TavilySearchTool(), llmGateway, 2, 3);
+        QueryAgent agent = new QueryAgent(
+            new TavilySearchTool(HttpClient.newHttpClient(), new ObjectMapper(), "http://localhost:65535", "", 3),
+            llmGateway,
+            2,
+            3
+        );
 
         AgentState state = agent.runWorkflow(new AnalysisRequest(
             "task-2",
@@ -247,5 +319,61 @@ class QueryAgentTest {
         public List<ForumGuidance> guidanceHistory(String taskId) {
             return List.of(guidance);
         }
+    }
+
+    private static HttpServer startServer() throws IOException {
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/search", QueryAgentTest::handleTavilyRequest);
+        server.start();
+        return server;
+    }
+
+    private static void handleTavilyRequest(HttpExchange exchange) throws IOException {
+        String response = """
+            {
+              "results": [
+                {
+                  "title": "武汉大学樱花季游客爆满",
+                  "url": "https://news.sina.com.cn/c/2026-03-18/doc-query-1.shtml",
+                  "content": "武汉大学樱花季热度继续攀升，校内游客接待压力明显增加。"
+                },
+                {
+                  "title": "多平台讨论集中在预约与限流",
+                  "url": "https://www.thepaper.cn/newsDetail_forward_32500001",
+                  "content": "微博和短视频平台对预约机制与限流政策讨论较多。"
+                },
+                {
+                  "title": "樱花季带动周边文旅消费",
+                  "url": "https://www.huxiu.com/article/4000001.html",
+                  "content": "文旅消费和社交平台讨论量同步上涨。"
+                }
+              ]
+            }
+            """;
+        byte[] body = response.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().add("Content-Type", "application/json");
+        exchange.sendResponseHeaders(200, body.length);
+        try (OutputStream outputStream = exchange.getResponseBody()) {
+            outputStream.write(body);
+        }
+    }
+
+    private static int indexOf(List<AnalysisEvent> events, Class<? extends AnalysisEvent> eventType) {
+        for (int index = 0; index < events.size(); index++) {
+            if (eventType.isInstance(events.get(index))) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    private static int indexOfSourceDelta(List<AnalysisEvent> events, int startExclusive) {
+        for (int index = Math.max(0, startExclusive + 1); index < events.size(); index++) {
+            AnalysisEvent event = events.get(index);
+            if (event instanceof DeltaChunkEvent deltaChunkEvent && "search-sources".equals(deltaChunkEvent.channel())) {
+                return index;
+            }
+        }
+        return -1;
     }
 }

@@ -1,6 +1,10 @@
 package com.bettafish.common.runtime;
 
-public interface Node<N extends Enum<N> & Node<N, C>, C extends NodeContext<N>> {
+public interface Node<C extends NodeContext> {
 
-    N execute(C context);
+    default String name() {
+        return getClass().getSimpleName();
+    }
+
+    Node<C> execute(C context);
 }

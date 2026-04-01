@@ -2,10 +2,13 @@ package com.bettafish.common.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.Map;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import com.bettafish.common.llm.JsonOutputParsingException;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 class JsonParserTest {
@@ -49,6 +52,27 @@ class JsonParserTest {
         assertFalse(result.success());
         assertTrue(result.errorDetail().contains("No JSON"));
         assertEquals(List.of(), result.repairActions());
+    }
+
+    @Test
+    void parseObjectThrowsInsteadOfReturningEmptyMap() {
+        JsonOutputParsingException exception = assertThrows(JsonOutputParsingException.class, () ->
+            JsonParser.parseObject("not-json-at-all")
+        );
+
+        assertEquals("not-json-at-all", exception.rawText());
+        assertTrue(exception.errorDetail().contains("No JSON"));
+    }
+
+    @Test
+    void parseObjectStillReturnsMapOnSuccess() {
+        Map<String, Object> result = JsonParser.parseObject("""
+            ```json
+            {"answer":"ok"}
+            ```
+            """);
+
+        assertEquals("ok", result.get("answer"));
     }
 
     private record Decision(@JsonProperty("should_refine") boolean shouldRefine,

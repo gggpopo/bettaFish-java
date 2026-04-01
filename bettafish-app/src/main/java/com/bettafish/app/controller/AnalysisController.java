@@ -18,9 +18,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.bettafish.app.event.EventBus;
 import com.bettafish.app.service.AnalysisCoordinator;
 import com.bettafish.common.api.AnalysisTaskSnapshot;
+import com.bettafish.common.event.AnalysisCancelledEvent;
 import com.bettafish.common.event.AnalysisCompleteEvent;
 import com.bettafish.common.event.AnalysisEvent;
 import com.bettafish.common.event.AnalysisFailedEvent;
+import com.bettafish.common.event.AnalysisTimedOutEvent;
 
 @RestController
 @RequestMapping("/api/analysis")
@@ -39,6 +41,13 @@ public class AnalysisController {
     @PostMapping
     public ResponseEntity<AnalysisTaskSnapshot> createAnalysis(@RequestBody CreateAnalysisTaskRequest request) {
         return ResponseEntity.ok(analysisCoordinator.startAnalysis(request.query()));
+    }
+
+    @PostMapping("/{taskId}/cancel")
+    public ResponseEntity<AnalysisTaskSnapshot> cancelAnalysis(@PathVariable String taskId) {
+        return analysisCoordinator.cancelAnalysis(taskId)
+            .map(ResponseEntity::ok)
+            .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Task not found: " + taskId));
     }
 
     @GetMapping("/{taskId}")
@@ -95,7 +104,10 @@ public class AnalysisController {
     }
 
     private boolean isTerminalEvent(AnalysisEvent event) {
-        return event instanceof AnalysisCompleteEvent || event instanceof AnalysisFailedEvent;
+        return event instanceof AnalysisCompleteEvent
+            || event instanceof AnalysisFailedEvent
+            || event instanceof AnalysisCancelledEvent
+            || event instanceof AnalysisTimedOutEvent;
     }
 
     private void closeSubscription(AtomicReference<EventBus.Subscription> subscriptionRef) {
