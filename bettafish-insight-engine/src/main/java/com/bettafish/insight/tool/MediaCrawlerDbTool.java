@@ -6,7 +6,9 @@ import com.bettafish.common.engine.ExecutionContext;
 import com.bettafish.common.engine.ExecutionContextHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 
 import java.time.*;
@@ -48,7 +50,8 @@ public class MediaCrawlerDbTool {
     private final JdbcTemplate jdbcTemplate;
     private final DatabaseSearchProperties properties;
 
-    public MediaCrawlerDbTool(JdbcTemplate jdbcTemplate, DatabaseSearchProperties properties) {
+    @Autowired
+    public MediaCrawlerDbTool(@Nullable JdbcTemplate jdbcTemplate, DatabaseSearchProperties properties) {
         this.jdbcTemplate = jdbcTemplate;
         this.properties = properties;
     }
