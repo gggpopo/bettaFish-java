@@ -63,14 +63,6 @@ public class KeywordOptimizer {
         if (hasBlankKeyword) {
             return LlmGateway.ValidationResult.invalid("keywords must not contain blank entries");
         }
-        boolean hasBadKeyword = keywords.stream().anyMatch(BAD_KEYWORDS::contains);
-        if (hasBadKeyword) {
-            return LlmGateway.ValidationResult.invalid("keywords must not contain bad keywords");
-        }
-        boolean hasTooLongKeyword = keywords.stream().anyMatch(k -> k.length() > MAX_KEYWORD_LENGTH);
-        if (hasTooLongKeyword) {
-            return LlmGateway.ValidationResult.invalid("keywords must not exceed " + MAX_KEYWORD_LENGTH + " characters");
-        }
         return LlmGateway.ValidationResult.valid();
     }
 

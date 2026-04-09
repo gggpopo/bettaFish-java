@@ -2,6 +2,7 @@ package com.bettafish.insight;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -23,6 +24,8 @@ import com.bettafish.common.llm.LlmGateway;
 import com.bettafish.common.model.AgentState;
 import com.bettafish.common.model.ForumGuidance;
 import com.bettafish.common.model.ParagraphState;
+import com.bettafish.common.model.StructuredNarrativeMetadata;
+import com.bettafish.common.model.StructuredNarrativeOutput;
 import com.bettafish.common.runtime.Node;
 import com.bettafish.common.runtime.StateMachineRunner;
 import com.bettafish.insight.keyword.KeywordOptimizer;
@@ -66,7 +69,7 @@ public class InsightAgent implements AnalysisEngine {
     InsightAgent(SentimentAnalysisClient sentimentAnalysisClient) {
         this(
             sentimentAnalysisClient,
-            new MediaCrawlerDbTool(),
+            new MediaCrawlerDbTool(null, new com.bettafish.common.config.DatabaseSearchProperties()),
             defaultKeywordOptimizer(defaultLlmGateway()),
             defaultLlmGateway(),
             ForumGuidanceProvider.noop(),
@@ -156,26 +159,32 @@ public class InsightAgent implements AnalysisEngine {
         List<SourceReference> sources = paragraph.getSearchHistory().stream()
             .flatMap(searchRecord -> searchRecord.getSources().stream())
             .toList();
+        Map<String, String> metadata = new LinkedHashMap<>();
+        metadata.put("mode", mode);
+        metadata.put("workflow", "state-machine");
+        metadata.put("searchRounds", Integer.toString(paragraph.getSearchHistory().size()));
+        metadata.put("sentimentLabel", sentimentLabel);
+        metadata.put("sentimentConfidence", sentimentConfidence);
+        metadata.put("forumGuidanceRevision", Integer.toString(paragraph.getForumGuidanceRevisionApplied()));
+        metadata.put("forumGuidancePrompt", paragraph.getForumGuidancePrompt());
+        metadata.put(StructuredNarrativeMetadata.FORMAT, StructuredNarrativeMetadata.FORMAT_V1);
+        metadata.put(StructuredNarrativeMetadata.DRAFT_SUMMARY, paragraph.getCurrentDraft());
+        metadata.put(StructuredNarrativeMetadata.FINAL_CONCLUSION, paragraph.getFinalConclusion());
+        metadata.put(StructuredNarrativeMetadata.EVIDENCE_GAPS, String.join("；", paragraph.getCurrentEvidenceGaps()));
 
         return new EngineResult(
             EngineType.INSIGHT,
             "Audience sentiment around " + request.query(),
-            state.getFinalReport(),
-            List.of(
-                "Dominant sentiment: " + sentimentLabel,
-                "Sentiment confidence: " + sentimentConfidence,
-                "Optimized keywords: " + String.join(", ", latestKeywords(paragraph))
-            ),
+            paragraph.getFinalConclusion().isBlank() ? state.getFinalReport() : paragraph.getFinalConclusion(),
+            paragraph.getCurrentKeyPoints().isEmpty()
+                ? List.of(
+                    "Dominant sentiment: " + sentimentLabel,
+                    "Sentiment confidence: " + sentimentConfidence,
+                    "Optimized keywords: " + String.join(", ", latestKeywords(paragraph))
+                )
+                : List.copyOf(paragraph.getCurrentKeyPoints()),
             sources,
-            Map.of(
-                "mode", mode,
-                "workflow", "state-machine",
-                "searchRounds", Integer.toString(paragraph.getSearchHistory().size()),
-                "sentimentLabel", sentimentLabel,
-                "sentimentConfidence", sentimentConfidence,
-                "forumGuidanceRevision", Integer.toString(paragraph.getForumGuidanceRevisionApplied()),
-                "forumGuidancePrompt", paragraph.getForumGuidancePrompt()
-            )
+            Map.copyOf(metadata)
         );
     }
 
@@ -228,7 +237,7 @@ public class InsightAgent implements AnalysisEngine {
     public Node<InsightNodeContext> summarizeFindings(InsightNodeContext context) {
         ParagraphState paragraph = context.getParagraph();
         ForumGuidance forumGuidance = syncForumState(context);
-        String summary = llmGateway.callText(
+        StructuredNarrativeOutput response = llmGateway.callJson(
             INSIGHT_CLIENT,
             InsightPrompts.FIRST_SUMMARY_SYSTEM,
             InsightPrompts.buildFirstSummaryUserPrompt(
@@ -238,6 +247,8 @@ public class InsightAgent implements AnalysisEngine {
                 latestSources(paragraph),
                 forumGuidance
             ),
+            StructuredNarrativeOutput.class,
+            this::validateStructuredNarrative,
             () -> defaultSummary(
                 context.getRequest().query(),
                 context.getSentimentSignal(),
@@ -245,9 +256,9 @@ public class InsightAgent implements AnalysisEngine {
                 context.getLatestKeywords()
             )
         );
-        paragraph.setCurrentDraft(summary);
-        publishDelta(context, "insight-summary", summary, paragraph.getSearchHistory().size());
-        publishSpeech(context, summary);
+        applyStructuredNarrative(paragraph, response);
+        publishDelta(context, "insight-summary", response.summary(), paragraph.getSearchHistory().size());
+        publishSpeech(context, response.summary());
         return InsightNode.REFLECT_ON_GAPS;
     }
 
@@ -293,7 +304,7 @@ public class InsightAgent implements AnalysisEngine {
     public Node<InsightNodeContext> summarizeReflection(InsightNodeContext context) {
         ParagraphState paragraph = context.getParagraph();
         ForumGuidance forumGuidance = syncForumState(context);
-        String reflectedSummary = llmGateway.callText(
+        StructuredNarrativeOutput response = llmGateway.callJson(
             INSIGHT_CLIENT,
             InsightPrompts.REFLECTION_SUMMARY_SYSTEM,
             InsightPrompts.buildReflectionSummaryUserPrompt(
@@ -304,37 +315,130 @@ public class InsightAgent implements AnalysisEngine {
                 latestSources(paragraph),
                 forumGuidance
             ),
+            StructuredNarrativeOutput.class,
+            this::validateStructuredNarrative,
             () -> defaultReflectionSummary(paragraph.getCurrentDraft(), forumGuidance)
         );
-        paragraph.setCurrentDraft(reflectedSummary);
+        applyStructuredNarrative(paragraph, response);
         paragraph.setReflectionRoundsCompleted(paragraph.getReflectionRoundsCompleted() + 1);
         context.getState().setRound(paragraph.getReflectionRoundsCompleted());
-        publishDelta(context, "insight-reflection", reflectedSummary, paragraph.getSearchHistory().size());
-        publishSpeech(context, reflectedSummary);
+        publishDelta(context, "insight-reflection", response.summary(), paragraph.getSearchHistory().size());
+        publishSpeech(context, response.summary());
         return InsightNode.FINALIZE_REPORT;
     }
 
     public Node<InsightNodeContext> finalizeReport(InsightNodeContext context) {
         ParagraphState paragraph = context.getParagraph();
+        ForumGuidance forumGuidance = syncForumState(context);
+        StructuredNarrativeOutput response = llmGateway.callJson(
+            INSIGHT_CLIENT,
+            InsightPrompts.FINAL_CONCLUSION_SYSTEM,
+            InsightPrompts.buildFinalConclusionUserPrompt(
+                context.getRequest().query(),
+                paragraph.getCurrentDraft(),
+                context.getSentimentSignal(),
+                context.getLatestKeywords(),
+                paragraph.getCurrentKeyPoints(),
+                paragraph.getCurrentEvidenceGaps(),
+                latestSources(paragraph),
+                forumGuidance
+            ),
+            StructuredNarrativeOutput.class,
+            this::validateStructuredNarrative,
+            () -> defaultFinalConclusion(context, paragraph, forumGuidance)
+        );
+        applyStructuredNarrative(paragraph, response);
         paragraph.setCompleted(true);
         context.getState().setStatus("COMPLETED");
-        context.getState().setFinalReport(paragraph.getCurrentDraft());
+        context.getState().setFinalReport(response.finalConclusion());
+        publishDelta(context, "insight-final-conclusion", response.finalConclusion(), paragraph.getSearchHistory().size() + 1);
+        publishSpeech(context, response.finalConclusion());
         return null;
     }
 
-    private String defaultSummary(String query, SentimentSignal sentiment, String sentimentConfidence,
-                                  List<String> optimizedKeywords) {
-        return "InsightAgent produced a social sentiment snapshot for " + query
-            + " with dominant sentiment " + sentiment.label()
-            + " (confidence " + sentimentConfidence + ")."
-            + " Optimized keywords: " + String.join(", ", optimizedKeywords) + ".";
+    private StructuredNarrativeOutput defaultSummary(String query, SentimentSignal sentiment, String sentimentConfidence,
+                                                     List<String> optimizedKeywords) {
+        return new StructuredNarrativeOutput(
+            "InsightAgent produced a social sentiment snapshot for " + query
+                + " with dominant sentiment " + sentiment.label()
+                + " (confidence " + sentimentConfidence + ")."
+                + " Optimized keywords: " + String.join(", ", optimizedKeywords) + ".",
+            List.of(
+                "Dominant sentiment: " + sentiment.label(),
+                "Sentiment confidence: " + sentimentConfidence
+            ),
+            List.of(),
+            "最终结论：" + query + " 当前以 " + sentiment.label() + " 情绪占主导。"
+        );
     }
 
-    private String defaultReflectionSummary(String summary, ForumGuidance forumGuidance) {
-        if (forumGuidance == null) {
-            return summary;
+    private StructuredNarrativeOutput defaultReflectionSummary(String summary, ForumGuidance forumGuidance) {
+        String supplement = forumGuidance == null ? "" : " 主持指导补充：" + forumGuidance.promptAddendum() + "。";
+        List<String> evidenceGaps = (forumGuidance == null || forumGuidance.promptAddendum() == null
+            || forumGuidance.promptAddendum().isBlank()) ? List.of() : List.of(forumGuidance.promptAddendum());
+        return new StructuredNarrativeOutput(
+            summary + supplement,
+            List.of(
+                "已根据主持指导补充群体差异",
+                "需要继续追踪争议来源和证据缺口"
+            ),
+            evidenceGaps,
+            "最终结论：" + summary + supplement
+        );
+    }
+
+    private StructuredNarrativeOutput defaultFinalConclusion(InsightNodeContext context,
+                                                             ParagraphState paragraph,
+                                                             ForumGuidance forumGuidance) {
+        String conclusion = paragraph.getFinalConclusion();
+        if (conclusion == null || conclusion.isBlank()) {
+            conclusion = "最终结论：" + context.getRequest().query() + " 的舆情焦点仍需继续跟踪。";
         }
-        return summary + " 主持指导补充：" + forumGuidance.promptAddendum() + "。";
+        if (forumGuidance != null && forumGuidance.promptAddendum() != null && !forumGuidance.promptAddendum().isBlank()) {
+            conclusion = conclusion + " 主持指导重点：" + forumGuidance.promptAddendum() + "。";
+        }
+        return new StructuredNarrativeOutput(
+            paragraph.getCurrentDraft(),
+            paragraph.getCurrentKeyPoints().isEmpty()
+                ? List.of(
+                    "Dominant sentiment: " + context.getSentimentSignal().label(),
+                    "Optimized keywords: " + String.join(", ", context.getLatestKeywords())
+                )
+                : paragraph.getCurrentKeyPoints(),
+            paragraph.getCurrentEvidenceGaps(),
+            conclusion
+        );
+    }
+
+    private void applyStructuredNarrative(ParagraphState paragraph, StructuredNarrativeOutput response) {
+        paragraph.setCurrentDraft(response.summary());
+        paragraph.setCurrentKeyPoints(response.keyPoints());
+        paragraph.setCurrentEvidenceGaps(response.evidenceGaps());
+        paragraph.setFinalConclusion(response.finalConclusion());
+    }
+
+    private LlmGateway.ValidationResult validateStructuredNarrative(StructuredNarrativeOutput response) {
+        if (response == null) {
+            return LlmGateway.ValidationResult.invalid("structured narrative must not be null");
+        }
+        if (response.summary() == null || response.summary().isBlank()) {
+            return LlmGateway.ValidationResult.invalid("summary must not be blank");
+        }
+        if (response.finalConclusion() == null || response.finalConclusion().isBlank()) {
+            return LlmGateway.ValidationResult.invalid("final conclusion must not be blank");
+        }
+        if (response.keyPoints().isEmpty()) {
+            return LlmGateway.ValidationResult.invalid("key points must not be empty");
+        }
+        boolean hasBlankKeyPoint = response.keyPoints().stream().anyMatch(value -> value == null || value.isBlank());
+        if (hasBlankKeyPoint) {
+            return LlmGateway.ValidationResult.invalid("key points must not contain blank entries");
+        }
+        boolean hasBlankGap = response.evidenceGaps().stream().anyMatch(value -> value == null || value.isBlank());
+        if (hasBlankGap) {
+            return LlmGateway.ValidationResult.invalid("evidence gaps must not contain blank entries");
+        }
+        return LlmGateway.ValidationResult.valid();
     }
 
     private LlmGateway.ValidationResult validateReflectionDecision(ReflectionDecisionResponse response) {
