@@ -4,6 +4,8 @@ import com.bettafish.report.ir.ChapterSpec;
 
 public final class ReportPrompts {
 
+    public static final String REPORT_SYSTEM_PROMPT = "BettaFish ReportEngine generated analysis report for";
+
     // ==================== 章节生成 ====================
     public static final String CHAPTER_GENERATION_SYSTEM_PROMPT = """
         # 角色：章节装配工厂
