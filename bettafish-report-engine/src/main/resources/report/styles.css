@@ -1,0 +1,75 @@
+:root {
+  --bg: #ffffff; --text: #1a1a2e; --heading: #16213e; --border: #e0e0e0;
+  --accent: #0f3460; --callout-info: #e3f2fd; --callout-warn: #fff8e1;
+  --callout-error: #ffebee; --callout-success: #e8f5e9;
+  --swot-s: #c8e6c9; --swot-w: #ffcdd2; --swot-o: #bbdefb; --swot-t: #ffe0b2;
+  --pest-p: #d1c4e9; --pest-e: #c8e6c9; --pest-s: #bbdefb; --pest-t: #ffe0b2;
+}
+[data-theme="dark"] {
+  --bg: #1a1a2e; --text: #e0e0e0; --heading: #a8d8ea; --border: #333;
+  --accent: #a8d8ea; --callout-info: #1a237e; --callout-warn: #4e342e;
+  --callout-error: #4a1a1a; --callout-success: #1b3a1b;
+  --swot-s: #2e4a2e; --swot-w: #4a2e2e; --swot-o: #1e3a5f; --swot-t: #4a3a1e;
+  --pest-p: #2e1f4a; --pest-e: #2e4a2e; --pest-s: #1e3a5f; --pest-t: #4a3a1e;
+}
+body { max-width:900px; margin:0 auto; padding:2rem 1rem; background:var(--bg);
+  color:var(--text); font-family:"Noto Serif SC","Source Han Serif CN","SimSun",serif; line-height:1.8; }
+h1,h2,h3,h4,h5,h6 { color:var(--heading); margin-top:2em; margin-bottom:.5em; }
+h1 { font-size:2rem; border-bottom:2px solid var(--accent); padding-bottom:.3em; }
+table { border-collapse:collapse; width:100%; margin:1em 0; }
+th,td { border:1px solid var(--border); padding:.6em .8em; text-align:left; }
+thead th { background:var(--accent); color:#fff; }
+tbody tr:nth-child(even) { background:rgba(0,0,0,.03); }
+[data-theme="dark"] tbody tr:nth-child(even) { background:rgba(255,255,255,.05); }
+blockquote { border-left:4px solid var(--accent); margin:1em 0; padding:.5em 1em;
+  font-style:italic; background:rgba(0,0,0,.02); }
+code { font-family:"Fira Code",monospace; background:rgba(0,0,0,.05); padding:.15em .3em; border-radius:3px; }
+pre { background:rgba(0,0,0,.05); padding:1em; overflow-x:auto; border-radius:6px; }
+pre code { background:none; padding:0; }
+a { color:var(--accent); }
+/* TOC */
+.toc { background:rgba(0,0,0,.03); border:1px solid var(--border); border-radius:6px;
+  padding:1em 1.5em; margin-bottom:2em; }
+.toc ul { list-style:none; padding-left:1.2em; margin:.3em 0; }
+.toc > ul { padding-left:0; }
+.toc a { text-decoration:none; }
+/* Chart */
+.chart-container { max-width:600px; margin:1.5em auto; }
+/* Callout */
+.callout { border-left:4px solid var(--accent); padding:.8em 1em; margin:1em 0; border-radius:0 6px 6px 0; }
+.callout-info { border-color:#1976d2; background:var(--callout-info); }
+.callout-warn { border-color:#f9a825; background:var(--callout-warn); }
+.callout-error { border-color:#d32f2f; background:var(--callout-error); }
+.callout-success { border-color:#388e3c; background:var(--callout-success); }
+/* KPI */
+.kpi-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:1em; margin:1em 0; }
+.kpi-card { border:1px solid var(--border); border-radius:8px; padding:1em; text-align:center; }
+.kpi-value { display:block; font-size:1.8em; font-weight:bold; color:var(--accent); }
+.kpi-label { display:block; font-size:.9em; color:var(--text); opacity:.7; }
+.kpi-trend { display:block; font-size:.85em; margin-top:.3em; }
+/* SWOT & PEST grids */
+.swot-grid,.pest-grid { display:grid; grid-template-columns:1fr 1fr; gap:2px; margin:1em 0; border-radius:8px; overflow:hidden; }
+.swot-cell,.pest-cell { padding:1em; }
+.swot-cell ul,.pest-cell ul { margin:.3em 0; padding-left:1.2em; }
+.swot-s { background:var(--swot-s); } .swot-w { background:var(--swot-w); }
+.swot-o { background:var(--swot-o); } .swot-t { background:var(--swot-t); }
+.pest-p { background:var(--pest-p); } .pest-e { background:var(--pest-e); }
+.pest-s { background:var(--pest-s); } .pest-t { background:var(--pest-t); }
+/* Engine quote */
+.engine-quote { border-left:4px solid #999; padding:.8em 1em; margin:1em 0; background:rgba(0,0,0,.02); }
+.engine-quote strong { display:block; margin-bottom:.3em; }
+.engine-insight { border-color:#1976d2; }
+.engine-media { border-color:#388e3c; }
+.engine-query { border-color:#f57c00; }
+/* Math */
+.math-block { text-align:center; padding:1em 0; font-size:1.1em; }
+/* Theme toggle */
+.theme-toggle { position:fixed; top:1rem; right:1rem; background:var(--accent); color:#fff;
+  border:none; border-radius:50%; width:40px; height:40px; cursor:pointer; font-size:1.2em; z-index:100; }
+hr { border:none; border-top:1px solid var(--border); margin:2em 0; }
+/* Print */
+@media print { .theme-toggle,.toc { display:none; } h2,h3 { page-break-after:avoid; }
+  table,pre,blockquote { page-break-inside:avoid; } body { max-width:100%; } }
+/* Responsive */
+@media (max-width:768px) { .kpi-grid,.swot-grid,.pest-grid { grid-template-columns:1fr; }
+  body { padding:1rem .5rem; } h1 { font-size:1.5rem; } }
