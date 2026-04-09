@@ -34,7 +34,7 @@ class ForumPromptsTest {
     @Test
     void buildGuidanceUserPrompt_containsStructuredSections() {
         var transcript = java.util.List.of(
-            new com.bettafish.common.model.ForumMessage("agent", "INSIGHT", "测试内容")
+            new com.bettafish.common.model.ForumMessage("agent", "INSIGHT", "测试内容", java.time.Instant.now())
         );
         var result = ForumPrompts.buildGuidanceUserPrompt(transcript, 1);
         assertThat(result)

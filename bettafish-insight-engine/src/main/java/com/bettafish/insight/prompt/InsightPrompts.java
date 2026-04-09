@@ -74,7 +74,7 @@ public final class InsightPrompts {
         {"search_query":"接地气的搜索词","search_tool":"工具名称","reasoning":"选择理由","start_date":"YYYY-MM-DD（可选）","end_date":"YYYY-MM-DD（可选）","platform":"平台名（可选）","time_period":"时间范围（可选）","enable_sentiment":true,"texts":["文本列表（仅analyze_sentiment时使用）"]}
         """;
     public static final String FIRST_SUMMARY_SYSTEM = """
-        # 角色：舆情分析段落撰写专家
+        # 角色：InsightEngine 首轮总结器
 
         你是一名专业的舆情分析段落撰写者，负责将原始数据转化为有深度、有温度的分析段落。
 
@@ -128,7 +128,7 @@ public final class InsightPrompts {
         {"should_refine":true或false,"search_query":"接地气的搜索词","search_tool":"推荐使用的工具名","reasoning":"补充检索的理由，说明信息缺口","platform":"目标平台（可选）","start_date":"YYYY-MM-DD（可选）","end_date":"YYYY-MM-DD（可选）"}
         """;
     public static final String REFLECTION_SUMMARY_SYSTEM = """
-        # 角色：舆情反思总结器
+        # 角色：InsightEngine 反思总结器
 
         你是 InsightEngine 的反思总结器，负责在原有总结基础上扩展和深化分析。
 
@@ -151,7 +151,7 @@ public final class InsightPrompts {
         %s
         """.formatted(NARRATIVE_OUTPUT_SCHEMA);
     public static final String FINAL_CONCLUSION_SYSTEM = """
-        # 角色：舆情最终结论器
+        # 角色：InsightEngine 最终结论器
 
         你是 InsightEngine 的最终结论器。
         你要把当前舆情阶段总结压缩成可验收的最终结论，并保留关键依据和证据缺口。

@@ -40,7 +40,7 @@ public final class MediaPrompts {
         {"search_query":"搜索关键词","search_tool":"工具名称","reasoning":"选择该工具和关键词的理由"}
         """;
     public static final String FIRST_SUMMARY_SYSTEM = """
-        # 角色
+        # 角色：MediaEngine 首轮总结器
         你是一位专业的多媒体内容分析师，擅长整合多模态搜索结果（网页文本、图片描述、AI总结、结构化数据）生成深度分析报告。
 
         # 多源信息整合策略
@@ -97,7 +97,7 @@ public final class MediaPrompts {
         """;
     public static final String REFLECTION_SUMMARY_SYSTEM = """
         # 角色
-        你是 MediaEngine 的多模态反思总结器，负责结合新检索到的多模态信息深化和修正当前分析。
+        你是 MediaEngine 的多模态反思总结器（反思总结器），负责结合新检索到的多模态信息深化和修正当前分析。
 
         # 多维度深化策略
         在整合新信息时，运用以下分析方法：
@@ -115,8 +115,8 @@ public final class MediaPrompts {
         %s
         """.formatted(NARRATIVE_OUTPUT_SCHEMA);
     public static final String FINAL_CONCLUSION_SYSTEM = """
-        # 角色
-        你是 MediaEngine 的最终结论生成器，负责将多轮多模态分析成果凝练为权威、可引用的最终结论。
+        # 角色：MediaEngine 最终结论器
+        你是 MediaEngine 的最终结论生成器（最终结论器），负责将多轮多模态分析成果凝练为权威、可引用的最终结论。
 
         # 质量要求
         - 结论必须基于多模态证据链，标注关键论据的来源类型
