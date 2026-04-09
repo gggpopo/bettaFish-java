@@ -1,5 +1,6 @@
 package com.bettafish.sentiment.api;
 
+import java.util.List;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -21,4 +22,16 @@ public class SentimentController {
     public ResponseEntity<SentimentAnalysisResponse> analyze(@RequestBody SentimentAnalysisRequest request) {
         return ResponseEntity.ok(analyzer.analyze(request.text()));
     }
+
+    @PostMapping("/analyze-batch")
+    public List<SentimentAnalysisResponse> analyzeBatch(@RequestBody BatchSentimentRequest request) {
+        return request.texts().stream()
+            .map(text -> {
+                var result = analyzer.analyze(text);
+                return new SentimentAnalysisResponse(result.label(), result.confidence());
+            })
+            .toList();
+    }
+
+    record BatchSentimentRequest(List<String> texts) {}
 }
