@@ -2,6 +2,7 @@ package com.bettafish.media;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.ObjectProvider;
@@ -22,6 +23,8 @@ import com.bettafish.common.llm.LlmGateway;
 import com.bettafish.common.model.AgentState;
 import com.bettafish.common.model.ForumGuidance;
 import com.bettafish.common.model.ParagraphState;
+import com.bettafish.common.model.StructuredNarrativeMetadata;
+import com.bettafish.common.model.StructuredNarrativeOutput;
 import com.bettafish.common.runtime.Node;
 import com.bettafish.common.runtime.StateMachineRunner;
 import com.bettafish.media.node.MediaNode;
@@ -94,23 +97,29 @@ public class MediaAgent implements AnalysisEngine {
         List<SourceReference> sources = paragraph.getSearchHistory().stream()
             .flatMap(searchRecord -> searchRecord.getSources().stream())
             .toList();
+        Map<String, String> metadata = new LinkedHashMap<>();
+        metadata.put("mode", "bocha-tool");
+        metadata.put("workflow", "state-machine");
+        metadata.put("searchRounds", Integer.toString(paragraph.getSearchHistory().size()));
+        metadata.put("forumGuidanceRevision", Integer.toString(paragraph.getForumGuidanceRevisionApplied()));
+        metadata.put("forumGuidancePrompt", paragraph.getForumGuidancePrompt());
+        metadata.put(StructuredNarrativeMetadata.FORMAT, StructuredNarrativeMetadata.FORMAT_V1);
+        metadata.put(StructuredNarrativeMetadata.DRAFT_SUMMARY, paragraph.getCurrentDraft());
+        metadata.put(StructuredNarrativeMetadata.FINAL_CONCLUSION, paragraph.getFinalConclusion());
+        metadata.put(StructuredNarrativeMetadata.EVIDENCE_GAPS, String.join("；", paragraph.getCurrentEvidenceGaps()));
         return new EngineResult(
             EngineType.MEDIA,
             "Multimodal coverage for " + request.query(),
-            state.getFinalReport(),
-            List.of(
-                "Estimated how image-heavy the topic appears",
-                "Highlighted likely social sharing angles",
-                "Captured placeholder structured facts for later enrichment"
-            ),
+            paragraph.getFinalConclusion().isBlank() ? state.getFinalReport() : paragraph.getFinalConclusion(),
+            paragraph.getCurrentKeyPoints().isEmpty()
+                ? List.of(
+                    "Estimated how image-heavy the topic appears",
+                    "Highlighted likely social sharing angles",
+                    "Captured placeholder structured facts for later enrichment"
+                )
+                : List.copyOf(paragraph.getCurrentKeyPoints()),
             sources,
-            Map.of(
-                "mode", "bocha-tool",
-                "workflow", "state-machine",
-                "searchRounds", Integer.toString(paragraph.getSearchHistory().size()),
-                "forumGuidanceRevision", Integer.toString(paragraph.getForumGuidanceRevisionApplied()),
-                "forumGuidancePrompt", paragraph.getForumGuidancePrompt()
-            )
+            Map.copyOf(metadata)
         );
     }
 
@@ -139,15 +148,17 @@ public class MediaAgent implements AnalysisEngine {
     public Node<MediaNodeContext> summarizeFindings(MediaNodeContext context) {
         ParagraphState paragraph = context.getParagraph();
         ForumGuidance forumGuidance = syncForumState(context);
-        String summary = llmGateway.callText(
+        StructuredNarrativeOutput response = llmGateway.callJson(
             MEDIA_CLIENT,
             MediaPrompts.FIRST_SUMMARY_SYSTEM,
             MediaPrompts.buildFirstSummaryUserPrompt(context.getRequest().query(), latestSources(paragraph), forumGuidance),
+            StructuredNarrativeOutput.class,
+            this::validateStructuredNarrative,
             () -> defaultSummary(context.getRequest().query(), latestSources(paragraph))
         );
-        paragraph.setCurrentDraft(summary);
-        publishDelta(context, "media-summary", summary, paragraph.getSearchHistory().size());
-        publishSpeech(context, summary);
+        applyStructuredNarrative(paragraph, response);
+        publishDelta(context, "media-summary", response.summary(), paragraph.getSearchHistory().size());
+        publishSpeech(context, response.summary());
         return MediaNode.REFLECT_ON_GAPS;
     }
 
@@ -191,7 +202,7 @@ public class MediaAgent implements AnalysisEngine {
     public Node<MediaNodeContext> summarizeReflection(MediaNodeContext context) {
         ParagraphState paragraph = context.getParagraph();
         ForumGuidance forumGuidance = syncForumState(context);
-        String reflectedSummary = llmGateway.callText(
+        StructuredNarrativeOutput response = llmGateway.callJson(
             MEDIA_CLIENT,
             MediaPrompts.REFLECTION_SUMMARY_SYSTEM,
             MediaPrompts.buildReflectionSummaryUserPrompt(
@@ -200,21 +211,42 @@ public class MediaAgent implements AnalysisEngine {
                 latestSources(paragraph),
                 forumGuidance
             ),
+            StructuredNarrativeOutput.class,
+            this::validateStructuredNarrative,
             () -> defaultReflectionSummary(paragraph.getCurrentDraft(), forumGuidance)
         );
-        paragraph.setCurrentDraft(reflectedSummary);
+        applyStructuredNarrative(paragraph, response);
         paragraph.setReflectionRoundsCompleted(paragraph.getReflectionRoundsCompleted() + 1);
         context.getState().setRound(paragraph.getReflectionRoundsCompleted());
-        publishDelta(context, "media-reflection", reflectedSummary, paragraph.getSearchHistory().size());
-        publishSpeech(context, reflectedSummary);
+        publishDelta(context, "media-reflection", response.summary(), paragraph.getSearchHistory().size());
+        publishSpeech(context, response.summary());
         return MediaNode.FINALIZE_REPORT;
     }
 
     public Node<MediaNodeContext> finalizeReport(MediaNodeContext context) {
         ParagraphState paragraph = context.getParagraph();
+        ForumGuidance forumGuidance = syncForumState(context);
+        StructuredNarrativeOutput response = llmGateway.callJson(
+            MEDIA_CLIENT,
+            MediaPrompts.FINAL_CONCLUSION_SYSTEM,
+            MediaPrompts.buildFinalConclusionUserPrompt(
+                context.getRequest().query(),
+                paragraph.getCurrentDraft(),
+                paragraph.getCurrentKeyPoints(),
+                paragraph.getCurrentEvidenceGaps(),
+                latestSources(paragraph),
+                forumGuidance
+            ),
+            StructuredNarrativeOutput.class,
+            this::validateStructuredNarrative,
+            () -> defaultFinalConclusion(context.getRequest().query(), paragraph, forumGuidance)
+        );
+        applyStructuredNarrative(paragraph, response);
         paragraph.setCompleted(true);
         context.getState().setStatus("COMPLETED");
-        context.getState().setFinalReport(paragraph.getCurrentDraft());
+        context.getState().setFinalReport(response.finalConclusion());
+        publishDelta(context, "media-final-conclusion", response.finalConclusion(), paragraph.getSearchHistory().size() + 1);
+        publishSpeech(context, response.finalConclusion());
         return null;
     }
 
@@ -244,15 +276,79 @@ public class MediaAgent implements AnalysisEngine {
         return roundIndex == 0 ? MediaNode.SUMMARIZE_FINDINGS : MediaNode.REFLECTION_SUMMARY;
     }
 
-    private String defaultSummary(String query, List<SourceReference> sources) {
-        return MediaPrompts.FIRST_SEARCH_SYSTEM + " " + query + "，共参考 " + sources.size() + " 条多模态来源。";
+    private StructuredNarrativeOutput defaultSummary(String query, List<SourceReference> sources) {
+        return new StructuredNarrativeOutput(
+            MediaPrompts.FIRST_SEARCH_SYSTEM + " " + query + "，共参考 " + sources.size() + " 条多模态来源。",
+            List.of(
+                "多模态来源数：" + sources.size(),
+                "需覆盖图文、短视频和视觉传播特征"
+            ),
+            sources.isEmpty() ? List.of("暂无可用多模态来源") : List.of(),
+            "最终结论：" + query + " 的传播主要依赖多模态内容扩散，仍需继续补齐平台样本。"
+        );
     }
 
-    private String defaultReflectionSummary(String summary, ForumGuidance forumGuidance) {
-        if (forumGuidance == null) {
-            return summary;
+    private StructuredNarrativeOutput defaultReflectionSummary(String summary, ForumGuidance forumGuidance) {
+        String supplement = forumGuidance == null ? "" : " 主持指导补充：" + forumGuidance.promptAddendum() + "。";
+        List<String> evidenceGaps = forumGuidance == null ? List.of() : List.of(forumGuidance.promptAddendum());
+        return new StructuredNarrativeOutput(
+            summary + supplement,
+            List.of(
+                "已根据主持指导补充传播观察",
+                "需要继续追踪新增视觉证据"
+            ),
+            evidenceGaps,
+            "最终结论：" + summary + supplement
+        );
+    }
+
+    private StructuredNarrativeOutput defaultFinalConclusion(String query, ParagraphState paragraph, ForumGuidance forumGuidance) {
+        String conclusion = paragraph.getFinalConclusion();
+        if (conclusion == null || conclusion.isBlank()) {
+            conclusion = "最终结论：" + query + " 的多模态传播以视觉内容扩散为主。";
         }
-        return summary + " 主持指导补充：" + forumGuidance.promptAddendum() + "。";
+        if (forumGuidance != null && forumGuidance.promptAddendum() != null && !forumGuidance.promptAddendum().isBlank()) {
+            conclusion = conclusion + " 主持指导重点：" + forumGuidance.promptAddendum() + "。";
+        }
+        return new StructuredNarrativeOutput(
+            paragraph.getCurrentDraft(),
+            paragraph.getCurrentKeyPoints().isEmpty()
+                ? List.of("传播主轴已初步识别", "后续仍需补齐视觉样本")
+                : paragraph.getCurrentKeyPoints(),
+            paragraph.getCurrentEvidenceGaps(),
+            conclusion
+        );
+    }
+
+    private void applyStructuredNarrative(ParagraphState paragraph, StructuredNarrativeOutput response) {
+        paragraph.setCurrentDraft(response.summary());
+        paragraph.setCurrentKeyPoints(response.keyPoints());
+        paragraph.setCurrentEvidenceGaps(response.evidenceGaps());
+        paragraph.setFinalConclusion(response.finalConclusion());
+    }
+
+    private LlmGateway.ValidationResult validateStructuredNarrative(StructuredNarrativeOutput response) {
+        if (response == null) {
+            return LlmGateway.ValidationResult.invalid("structured narrative must not be null");
+        }
+        if (response.summary() == null || response.summary().isBlank()) {
+            return LlmGateway.ValidationResult.invalid("summary must not be blank");
+        }
+        if (response.finalConclusion() == null || response.finalConclusion().isBlank()) {
+            return LlmGateway.ValidationResult.invalid("final conclusion must not be blank");
+        }
+        if (response.keyPoints().isEmpty()) {
+            return LlmGateway.ValidationResult.invalid("key points must not be empty");
+        }
+        boolean hasBlankKeyPoint = response.keyPoints().stream().anyMatch(value -> value == null || value.isBlank());
+        if (hasBlankKeyPoint) {
+            return LlmGateway.ValidationResult.invalid("key points must not contain blank entries");
+        }
+        boolean hasBlankGap = response.evidenceGaps().stream().anyMatch(value -> value == null || value.isBlank());
+        if (hasBlankGap) {
+            return LlmGateway.ValidationResult.invalid("evidence gaps must not contain blank entries");
+        }
+        return LlmGateway.ValidationResult.valid();
     }
 
     private LlmGateway.ValidationResult validateReflectionDecision(ReflectionDecisionResponse response) {

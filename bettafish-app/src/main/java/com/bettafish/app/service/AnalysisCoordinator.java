@@ -4,24 +4,35 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.stereotype.Service;
 import com.bettafish.app.event.EventBus;
+import com.bettafish.app.config.AnalysisExecutionPolicy;
 import com.bettafish.common.api.AnalysisRequest;
 import com.bettafish.common.api.AnalysisStatus;
 import com.bettafish.common.api.AnalysisTaskSnapshot;
 import com.bettafish.common.api.EngineResult;
+import com.bettafish.common.api.EngineType;
 import com.bettafish.common.api.ReportDocument;
 import com.bettafish.common.api.ReportInput;
 import com.bettafish.common.engine.AnalysisEngine;
 import com.bettafish.common.engine.ExecutionCancelledException;
 import com.bettafish.common.engine.ExecutionContext;
+import com.bettafish.common.engine.ExecutionContextHolder;
 import com.bettafish.common.engine.ForumCoordinator;
 import com.bettafish.common.engine.ReportGenerator;
 import com.bettafish.common.event.AnalysisCancelledEvent;
@@ -31,7 +42,6 @@ import com.bettafish.common.event.AnalysisTimedOutEvent;
 import com.bettafish.common.event.AgentSpeechEvent;
 import com.bettafish.common.event.DeltaChunkEvent;
 import com.bettafish.common.event.EngineStartedEvent;
-import org.springframework.stereotype.Service;
 
 @Service
 public class AnalysisCoordinator {
@@ -41,9 +51,11 @@ public class AnalysisCoordinator {
     private final ReportGenerator reportGenerator;
     private final AnalysisTaskRepository taskRepository;
     private final Executor analysisExecutor;
+    private final Executor analysisEngineExecutor;
     private final ScheduledExecutorService analysisTimeoutScheduler;
-    private final Duration taskTimeout;
+    private final AnalysisExecutionPolicy executionPolicy;
     private final EventBus eventBus;
+    private final Semaphore engineBulkhead;
     private final ConcurrentHashMap<String, RunningTask> runningTasks = new ConcurrentHashMap<>();
 
     public AnalysisCoordinator(
@@ -51,9 +63,10 @@ public class AnalysisCoordinator {
         ForumCoordinator forumCoordinator,
         ReportGenerator reportGenerator,
         AnalysisTaskRepository taskRepository,
-        Executor analysisExecutor,
+        @Qualifier("analysisExecutor") Executor analysisExecutor,
+        @Qualifier("analysisEngineExecutor") Executor analysisEngineExecutor,
         ScheduledExecutorService analysisTimeoutScheduler,
-        Duration taskTimeout,
+        AnalysisExecutionPolicy executionPolicy,
         EventBus eventBus
     ) {
         this.analysisEngines = analysisEngines;
@@ -61,9 +74,13 @@ public class AnalysisCoordinator {
         this.reportGenerator = reportGenerator;
         this.taskRepository = taskRepository;
         this.analysisExecutor = analysisExecutor;
+        this.analysisEngineExecutor = analysisEngineExecutor;
         this.analysisTimeoutScheduler = analysisTimeoutScheduler;
-        this.taskTimeout = taskTimeout == null ? Duration.ofMinutes(5) : taskTimeout;
+        this.executionPolicy = executionPolicy == null
+            ? new AnalysisExecutionPolicy(Duration.ofMinutes(5), Duration.ofMinutes(5), Math.max(1, analysisEngines.size()))
+            : executionPolicy;
         this.eventBus = eventBus;
+        this.engineBulkhead = new Semaphore(this.executionPolicy.maxConcurrentEngines());
     }
 
     public AnalysisTaskSnapshot startAnalysis(String query) {
@@ -81,11 +98,11 @@ public class AnalysisCoordinator {
             null,
             null
         ));
-        RunningTask runningTask = new RunningTask(request, runningSnapshot, new ExecutionContext(taskTimeout));
+        RunningTask runningTask = new RunningTask(request, runningSnapshot, new ExecutionContext(executionPolicy.taskTimeout()));
         runningTasks.put(taskId, runningTask);
         runningTask.timeoutFuture = analysisTimeoutScheduler.schedule(
             () -> handleTimeout(runningTask),
-            taskTimeout.toMillis(),
+            executionPolicy.taskTimeout().toMillis(),
             java.util.concurrent.TimeUnit.MILLISECONDS
         );
         runningTask.future = CompletableFuture.runAsync(() -> executeTask(runningTask), analysisExecutor);
@@ -110,34 +127,79 @@ public class AnalysisCoordinator {
     }
 
     private void executeTask(RunningTask runningTask) {
-        AnalysisRequest request = runningTask.request;
-        try {
-            runningTask.executionContext.throwIfCancellationRequested();
-            List<EngineResult> engineResults = analysisEngines.stream()
-                .map(engine -> {
-                    runningTask.executionContext.throwIfCancellationRequested();
-                    return analyzeEngine(request, engine, runningTask.executionContext);
-                })
-                .sorted(Comparator.comparing(EngineResult::engineType))
-                .toList();
-            runningTask.executionContext.throwIfCancellationRequested();
-            var forumSummary = forumCoordinator.coordinate(request, engineResults, eventBus);
-            runningTask.executionContext.throwIfCancellationRequested();
-            ReportDocument report = reportGenerator.generate(
-                request,
-                new ReportInput(request.query(), engineResults, forumSummary),
-                eventBus
-            );
-            eventBus.publish(new DeltaChunkEvent(request.taskId(), "REPORT", "report-summary", report.summary(), 1, Instant.now()));
-            completeTask(runningTask, engineResults, forumSummary, report);
-        } catch (ExecutionCancelledException ex) {
-            if (ex.terminalStatus() == AnalysisStatus.TIMED_OUT) {
-                timeOutTask(runningTask);
-            } else {
-                cancelTask(runningTask);
+        ExecutionContextHolder.runWith(runningTask.executionContext, () -> {
+            AnalysisRequest request = runningTask.request;
+            try {
+                runningTask.executionContext.throwIfCancellationRequested();
+                List<EngineResult> engineResults = executeEngines(request, runningTask.executionContext);
+                runningTask.executionContext.throwIfCancellationRequested();
+                var forumSummary = forumCoordinator.coordinate(request, engineResults, eventBus);
+                runningTask.executionContext.throwIfCancellationRequested();
+                ReportDocument report = reportGenerator.generate(
+                    request,
+                    new ReportInput(request.query(), engineResults, forumSummary),
+                    eventBus
+                );
+                eventBus.publish(new DeltaChunkEvent(request.taskId(), "REPORT", "report-summary", report.summary(), 1, Instant.now()));
+                completeTask(runningTask, engineResults, forumSummary, report);
+            } catch (ExecutionCancelledException ex) {
+                if (ex.terminalStatus() == AnalysisStatus.TIMED_OUT) {
+                    timeOutTask(runningTask);
+                } else {
+                    cancelTask(runningTask);
+                }
+            } catch (RuntimeException ex) {
+                failTask(runningTask, ex);
             }
+        });
+    }
+
+    private List<EngineResult> executeEngines(AnalysisRequest request, ExecutionContext taskExecutionContext) {
+        List<CompletableFuture<EngineResult>> futures = analysisEngines.stream()
+            .map(engine -> {
+                ExecutionContext engineExecutionContext = new ExecutionContext(executionPolicy.engineTimeout(), taskExecutionContext);
+                return CompletableFuture.supplyAsync(
+                    () -> ExecutionContextHolder.callWith(
+                        engineExecutionContext,
+                        () -> analyzeEngineSafely(request, engine, taskExecutionContext, engineExecutionContext)
+                    ),
+                    analysisEngineExecutor
+                );
+            })
+            .toList();
+        CompletableFuture<Void> allDone = CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new));
+
+        try {
+            awaitEngineFutures(taskExecutionContext, futures, allDone);
         } catch (RuntimeException ex) {
-            failTask(runningTask, ex);
+            cancelEngineFutures(futures);
+            throw ex;
+        }
+
+        return futures.stream()
+            .map(this::joinEngineFuture)
+            .sorted(Comparator.comparing(EngineResult::engineType))
+            .toList();
+    }
+
+    private EngineResult analyzeEngineSafely(AnalysisRequest request,
+                                             AnalysisEngine engine,
+                                             ExecutionContext taskExecutionContext,
+                                             ExecutionContext engineExecutionContext) {
+        try {
+            acquireEnginePermit(engineExecutionContext);
+            try {
+                return analyzeEngine(request, engine, engineExecutionContext);
+            } finally {
+                engineBulkhead.release();
+            }
+        } catch (ExecutionCancelledException ex) {
+            if (taskExecutionContext.isCancellationRequested()) {
+                throw ex;
+            }
+            return timedOutEngineResult(engine, ex);
+        } catch (RuntimeException ex) {
+            throw new IllegalStateException("Engine %s failed: %s".formatted(engine.engineName(), ex.getMessage()), ex);
         }
     }
 
@@ -152,6 +214,118 @@ public class AnalysisCoordinator {
             Instant.now()
         ));
         return result;
+    }
+
+    private void acquireEnginePermit(ExecutionContext executionContext) {
+        boolean acquired = false;
+        try {
+            while (!acquired) {
+                executionContext.throwIfCancellationRequested();
+                acquired = engineBulkhead.tryAcquire(25, TimeUnit.MILLISECONDS);
+            }
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            executionContext.throwIfCancellationRequested();
+            throw new IllegalStateException("Interrupted while waiting for engine bulkhead permit", ex);
+        }
+    }
+
+    private void awaitEngineFutures(ExecutionContext taskExecutionContext,
+                                    List<CompletableFuture<EngineResult>> futures,
+                                    CompletableFuture<Void> allDone) {
+        while (true) {
+            taskExecutionContext.throwIfCancellationRequested();
+            RuntimeException failure = findCompletedEngineFailure(futures);
+            if (failure != null) {
+                throw failure;
+            }
+            if (awaitAllDone(allDone, taskExecutionContext)) {
+                return;
+            }
+        }
+    }
+
+    private RuntimeException findCompletedEngineFailure(List<CompletableFuture<EngineResult>> futures) {
+        for (CompletableFuture<EngineResult> future : futures) {
+            if (future.isDone() && future.isCompletedExceptionally()) {
+                return unwrapEngineFutureFailure(future);
+            }
+        }
+        return null;
+    }
+
+    private boolean awaitAllDone(CompletableFuture<Void> allDone, ExecutionContext executionContext) {
+        try {
+            allDone.get(10, TimeUnit.MILLISECONDS);
+            return true;
+        } catch (TimeoutException ex) {
+            return false;
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            executionContext.throwIfCancellationRequested();
+            throw new IllegalStateException("Interrupted while waiting for engine fan-out", ex);
+        } catch (ExecutionException ex) {
+            Throwable cause = ex.getCause();
+            if (cause instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            throw new IllegalStateException("Engine fan-out failed", cause);
+        }
+    }
+
+    private RuntimeException unwrapEngineFutureFailure(CompletableFuture<EngineResult> future) {
+        try {
+            future.join();
+            return new IllegalStateException("Engine future failed without an exception");
+        } catch (CompletionException ex) {
+            Throwable cause = ex.getCause();
+            if (cause instanceof RuntimeException runtimeException) {
+                return runtimeException;
+            }
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            return new IllegalStateException("Engine future failed", cause);
+        }
+    }
+
+    private EngineResult joinEngineFuture(CompletableFuture<EngineResult> future) {
+        try {
+            return future.join();
+        } catch (CompletionException ex) {
+            Throwable cause = ex.getCause();
+            if (cause instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            throw new IllegalStateException("Engine future failed", cause);
+        }
+    }
+
+    private void cancelEngineFutures(List<CompletableFuture<EngineResult>> futures) {
+        futures.forEach(future -> future.cancel(true));
+    }
+
+    private EngineResult timedOutEngineResult(AnalysisEngine engine, ExecutionCancelledException exception) {
+        EngineType engineType = EngineType.valueOf(engine.engineName());
+        String status = exception.terminalStatus().name();
+        return new EngineResult(
+            engineType,
+            engine.engineName() + " unavailable",
+            "Engine %s timed out before contributing results.".formatted(engine.engineName()),
+            List.of("status=" + status),
+            List.of(),
+            Map.of(
+                "status", status,
+                "degraded", "true",
+                "error", exception.getMessage()
+            )
+        );
     }
 
     private void handleTimeout(RunningTask runningTask) {

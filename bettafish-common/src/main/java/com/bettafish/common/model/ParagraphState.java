@@ -10,10 +10,13 @@ public class ParagraphState {
     private String title;
     private String expectedContent;
     private String currentDraft = "";
+    private String finalConclusion = "";
     private boolean completed;
     private int reflectionRoundsCompleted;
     private int forumGuidanceRevisionApplied;
     private String forumGuidancePrompt = "";
+    private final List<String> currentKeyPoints = new ArrayList<>();
+    private final List<String> currentEvidenceGaps = new ArrayList<>();
     private final List<SearchRecord> searchHistory = new ArrayList<>();
 
     public ParagraphState() {
@@ -57,6 +60,14 @@ public class ParagraphState {
         this.currentDraft = currentDraft;
     }
 
+    public String getFinalConclusion() {
+        return finalConclusion;
+    }
+
+    public void setFinalConclusion(String finalConclusion) {
+        this.finalConclusion = finalConclusion;
+    }
+
     public boolean isCompleted() {
         return completed;
     }
@@ -87,6 +98,28 @@ public class ParagraphState {
 
     public void setForumGuidancePrompt(String forumGuidancePrompt) {
         this.forumGuidancePrompt = forumGuidancePrompt;
+    }
+
+    public List<String> getCurrentKeyPoints() {
+        return currentKeyPoints;
+    }
+
+    public void setCurrentKeyPoints(List<String> currentKeyPoints) {
+        this.currentKeyPoints.clear();
+        if (currentKeyPoints != null) {
+            this.currentKeyPoints.addAll(currentKeyPoints);
+        }
+    }
+
+    public List<String> getCurrentEvidenceGaps() {
+        return currentEvidenceGaps;
+    }
+
+    public void setCurrentEvidenceGaps(List<String> currentEvidenceGaps) {
+        this.currentEvidenceGaps.clear();
+        if (currentEvidenceGaps != null) {
+            this.currentEvidenceGaps.addAll(currentEvidenceGaps);
+        }
     }
 
     public List<SearchRecord> getSearchHistory() {

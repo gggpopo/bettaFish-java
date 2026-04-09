@@ -1,17 +1,39 @@
 package com.bettafish.query.tool;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.net.Authenticator;
+import java.net.CookieHandler;
 import java.net.InetSocketAddress;
+import java.net.ProxySelector;
 import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLParameters;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import com.bettafish.common.api.SourceReference;
+import com.bettafish.common.engine.ExecutionCancelledException;
+import com.bettafish.common.engine.ExecutionContext;
+import com.bettafish.common.engine.ExecutionContextHolder;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -70,6 +92,35 @@ class TavilySearchToolTest {
         assertTrue(handler.requestBody().contains("\"max_results\":3"));
     }
 
+    @Test
+    void abortsBlockedHttpSearchWhenExecutionIsCancelled() throws Exception {
+        BlockingHttpClient httpClient = new BlockingHttpClient();
+        TavilySearchTool tool = new TavilySearchTool(
+            httpClient,
+            new ObjectMapper(),
+            "http://localhost:8080",
+            "tvly-test-key",
+            3
+        );
+        ExecutionContext executionContext = new ExecutionContext(Duration.ofMinutes(1));
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<List<SourceReference>> future = executor.submit(() -> ExecutionContextHolder.callWith(
+                executionContext,
+                () -> tool.search("阻塞中的 Tavily 请求")
+            ));
+
+            assertTrue(httpClient.awaitStarted());
+            assertTrue(executionContext.cancel());
+
+            ExecutionException exception = assertThrows(ExecutionException.class, () -> future.get(2, TimeUnit.SECONDS));
+            assertInstanceOf(ExecutionCancelledException.class, exception.getCause());
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
     private HttpServer startServer(RecordingHandler handler) throws IOException {
         HttpServer httpServer = HttpServer.create(new InetSocketAddress(0), 0);
         httpServer.createContext("/search", handler);
@@ -98,6 +149,80 @@ class TavilySearchToolTest {
 
         private String requestBody() {
             return requestBody;
+        }
+    }
+
+    private static final class BlockingHttpClient extends HttpClient {
+
+        private final CountDownLatch started = new CountDownLatch(1);
+
+        @Override
+        public Optional<CookieHandler> cookieHandler() {
+            return Optional.empty();
+        }
+
+        @Override
+        public Optional<Duration> connectTimeout() {
+            return Optional.empty();
+        }
+
+        @Override
+        public Redirect followRedirects() {
+            return Redirect.NEVER;
+        }
+
+        @Override
+        public Optional<ProxySelector> proxy() {
+            return Optional.empty();
+        }
+
+        @Override
+        public SSLContext sslContext() {
+            return null;
+        }
+
+        @Override
+        public SSLParameters sslParameters() {
+            return new SSLParameters();
+        }
+
+        @Override
+        public Optional<Authenticator> authenticator() {
+            return Optional.empty();
+        }
+
+        @Override
+        public Version version() {
+            return Version.HTTP_1_1;
+        }
+
+        @Override
+        public Optional<Executor> executor() {
+            return Optional.empty();
+        }
+
+        @Override
+        public <T> HttpResponse<T> send(HttpRequest request, HttpResponse.BodyHandler<T> responseBodyHandler)
+            throws IOException, InterruptedException {
+            started.countDown();
+            new CountDownLatch(1).await();
+            throw new IllegalStateException("unreachable");
+        }
+
+        @Override
+        public <T> CompletableFuture<HttpResponse<T>> sendAsync(HttpRequest request, HttpResponse.BodyHandler<T> responseBodyHandler) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public <T> CompletableFuture<HttpResponse<T>> sendAsync(HttpRequest request,
+                                                                HttpResponse.BodyHandler<T> responseBodyHandler,
+                                                                HttpResponse.PushPromiseHandler<T> pushPromiseHandler) {
+            throw new UnsupportedOperationException();
+        }
+
+        private boolean awaitStarted() throws InterruptedException {
+            return started.await(1, TimeUnit.SECONDS);
         }
     }
 }

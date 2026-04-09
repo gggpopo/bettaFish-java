@@ -1,6 +1,7 @@
 package com.bettafish.app.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -8,6 +9,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.List;
+import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.CountDownLatch;
@@ -19,9 +21,11 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.Test;
 import com.bettafish.app.event.InMemoryEventBus;
+import com.bettafish.app.config.AnalysisExecutionPolicy;
 import com.bettafish.common.api.AnalysisStatus;
 import com.bettafish.common.api.DocumentBlock;
 import com.bettafish.common.api.DocumentIr;
@@ -63,8 +67,9 @@ class AnalysisCoordinatorTest {
             reportGenerator(),
             taskRepository,
             manualExecutor,
+            Runnable::run,
             scheduler,
-            Duration.ofMinutes(5),
+            new AnalysisExecutionPolicy(Duration.ofMinutes(5), Duration.ofMinutes(5), 3),
             eventBus
         );
 
@@ -118,8 +123,9 @@ class AnalysisCoordinatorTest {
             reportGenerator(),
             taskRepository,
             manualExecutor,
+            Runnable::run,
             scheduler,
-            Duration.ofMinutes(5),
+            new AnalysisExecutionPolicy(Duration.ofMinutes(5), Duration.ofMinutes(5), 1),
             eventBus
         );
 
@@ -133,8 +139,45 @@ class AnalysisCoordinatorTest {
     }
 
     @Test
+    void failsFastWhenOneParallelEngineCrashes() throws Exception {
+        ExecutorService coordinatorExecutor = Executors.newSingleThreadExecutor(new NamedThreadFactory("analysis-failure-"));
+        ExecutorService engineExecutor = Executors.newCachedThreadPool(new NamedThreadFactory("analysis-failure-engine-"));
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(new NamedThreadFactory("analysis-failure-scheduler-"));
+        CountDownLatch release = new CountDownLatch(1);
+        try {
+            CoordinatedBlockingEngine slowEngine = new CoordinatedBlockingEngine(EngineType.MEDIA, release);
+            InMemoryEventBus eventBus = new InMemoryEventBus();
+            AnalysisCoordinator coordinator = new AnalysisCoordinator(
+                List.of(failingEngine(EngineType.QUERY, "boom"), slowEngine),
+                forumCoordinator(),
+                reportGenerator(),
+                new InMemoryAnalysisTaskRepository(),
+                coordinatorExecutor,
+                engineExecutor,
+                scheduler,
+                new AnalysisExecutionPolicy(Duration.ofMinutes(5), Duration.ofMinutes(1), 2),
+                eventBus
+            );
+
+            var snapshot = coordinator.startAnalysis("并行失败任务");
+
+            assertTrue(slowEngine.awaitStarted());
+            assertTrue(awaitCondition(() ->
+                coordinator.getTask(snapshot.taskId()).map(task -> task.status() == AnalysisStatus.FAILED).orElse(false)
+            ));
+            assertTrue(eventBus.history(snapshot.taskId()).stream().anyMatch(AnalysisFailedEvent.class::isInstance));
+        } finally {
+            release.countDown();
+            scheduler.shutdownNow();
+            engineExecutor.shutdownNow();
+            coordinatorExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     void cancelsRunningTaskAndPublishesTerminalEvent() throws Exception {
         ExecutorService executor = Executors.newSingleThreadExecutor(new NamedThreadFactory("analysis-test-"));
+        ExecutorService engineExecutor = Executors.newSingleThreadExecutor(new NamedThreadFactory("analysis-test-engine-"));
         TestScheduledExecutorService scheduler = new TestScheduledExecutorService();
         try {
             BlockingCancellableEngine engine = new BlockingCancellableEngine(EngineType.QUERY);
@@ -146,8 +189,9 @@ class AnalysisCoordinatorTest {
                 reportGenerator(),
                 taskRepository,
                 executor,
+                engineExecutor,
                 scheduler,
-                Duration.ofMinutes(5),
+                new AnalysisExecutionPolicy(Duration.ofMinutes(5), Duration.ofMinutes(5), 1),
                 eventBus
             );
 
@@ -161,8 +205,11 @@ class AnalysisCoordinatorTest {
 
             var cancelled = coordinator.getTask(snapshot.taskId()).orElseThrow();
             assertEquals(AnalysisStatus.CANCELLED, cancelled.status());
-            assertTrue(eventBus.history(snapshot.taskId()).stream().anyMatch(AnalysisCancelledEvent.class::isInstance));
+            assertTrue(awaitCondition(() ->
+                eventBus.history(snapshot.taskId()).stream().anyMatch(AnalysisCancelledEvent.class::isInstance)
+            ));
         } finally {
+            engineExecutor.shutdownNow();
             executor.shutdownNow();
         }
     }
@@ -170,6 +217,7 @@ class AnalysisCoordinatorTest {
     @Test
     void timesOutRunningTaskAndPublishesTerminalEvent() throws Exception {
         ExecutorService executor = Executors.newSingleThreadExecutor(new NamedThreadFactory("analysis-timeout-"));
+        ExecutorService engineExecutor = Executors.newSingleThreadExecutor(new NamedThreadFactory("analysis-timeout-engine-"));
         ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(new NamedThreadFactory("analysis-timeout-scheduler-"));
         try {
             BlockingCancellableEngine engine = new BlockingCancellableEngine(EngineType.QUERY);
@@ -181,8 +229,9 @@ class AnalysisCoordinatorTest {
                 reportGenerator(),
                 taskRepository,
                 executor,
+                engineExecutor,
                 scheduler,
-                Duration.ofMillis(50),
+                new AnalysisExecutionPolicy(Duration.ofMillis(50), Duration.ofMillis(50), 1),
                 eventBus
             );
 
@@ -195,10 +244,132 @@ class AnalysisCoordinatorTest {
 
             var timedOut = coordinator.getTask(snapshot.taskId()).orElseThrow();
             assertEquals(AnalysisStatus.TIMED_OUT, timedOut.status());
-            assertTrue(eventBus.history(snapshot.taskId()).stream().anyMatch(AnalysisTimedOutEvent.class::isInstance));
+            assertTrue(awaitCondition(() ->
+                eventBus.history(snapshot.taskId()).stream().anyMatch(AnalysisTimedOutEvent.class::isInstance)
+            ));
         } finally {
             scheduler.shutdownNow();
+            engineExecutor.shutdownNow();
             executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void executesMultipleEnginesInParallel() throws Exception {
+        ExecutorService coordinatorExecutor = Executors.newSingleThreadExecutor(new NamedThreadFactory("analysis-coordinator-"));
+        ExecutorService engineExecutor = Executors.newCachedThreadPool(new NamedThreadFactory("analysis-engine-"));
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(new NamedThreadFactory("analysis-parallel-scheduler-"));
+        try {
+            CountDownLatch release = new CountDownLatch(1);
+            CoordinatedBlockingEngine first = new CoordinatedBlockingEngine(EngineType.QUERY, release);
+            CoordinatedBlockingEngine second = new CoordinatedBlockingEngine(EngineType.MEDIA, release);
+            AnalysisCoordinator coordinator = new AnalysisCoordinator(
+                List.of(first, second),
+                forumCoordinator(),
+                reportGenerator(),
+                new InMemoryAnalysisTaskRepository(),
+                coordinatorExecutor,
+                engineExecutor,
+                scheduler,
+                new AnalysisExecutionPolicy(Duration.ofMinutes(5), Duration.ofMinutes(1), 2),
+                new InMemoryEventBus()
+            );
+
+            var snapshot = coordinator.startAnalysis("并行执行任务");
+
+            assertTrue(first.awaitStarted());
+            assertTrue(second.awaitStarted());
+            release.countDown();
+            assertTrue(awaitCondition(() ->
+                coordinator.getTask(snapshot.taskId()).map(task -> task.status() == AnalysisStatus.COMPLETED).orElse(false)
+            ));
+        } finally {
+            scheduler.shutdownNow();
+            engineExecutor.shutdownNow();
+            coordinatorExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    void respectsConfiguredEngineBulkheadLimit() throws Exception {
+        ExecutorService coordinatorExecutor = Executors.newSingleThreadExecutor(new NamedThreadFactory("analysis-coordinator-"));
+        ExecutorService engineExecutor = Executors.newCachedThreadPool(new NamedThreadFactory("analysis-engine-"));
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(new NamedThreadFactory("analysis-bulkhead-scheduler-"));
+        try {
+            CountDownLatch release = new CountDownLatch(1);
+            AtomicInteger startedOrder = new AtomicInteger();
+            SequencedBlockingEngine first = new SequencedBlockingEngine(EngineType.QUERY, release, startedOrder);
+            SequencedBlockingEngine second = new SequencedBlockingEngine(EngineType.MEDIA, release, startedOrder);
+            SequencedBlockingEngine third = new SequencedBlockingEngine(EngineType.INSIGHT, release, startedOrder);
+            AnalysisCoordinator coordinator = new AnalysisCoordinator(
+                List.of(first, second, third),
+                forumCoordinator(),
+                reportGenerator(),
+                new InMemoryAnalysisTaskRepository(),
+                coordinatorExecutor,
+                engineExecutor,
+                scheduler,
+                new AnalysisExecutionPolicy(Duration.ofMinutes(5), Duration.ofMinutes(1), 2),
+                new InMemoryEventBus()
+            );
+
+            var snapshot = coordinator.startAnalysis("bulkhead 限流任务");
+
+            assertTrue(first.awaitStarted());
+            assertTrue(second.awaitStarted());
+            assertFalse(third.awaitStarted(200, TimeUnit.MILLISECONDS));
+
+            release.countDown();
+            assertTrue(third.awaitStarted(2, TimeUnit.SECONDS));
+            assertTrue(awaitCondition(() ->
+                coordinator.getTask(snapshot.taskId()).map(task -> task.status() == AnalysisStatus.COMPLETED).orElse(false)
+            ));
+        } finally {
+            scheduler.shutdownNow();
+            engineExecutor.shutdownNow();
+            coordinatorExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    void completesWithPlaceholderResultWhenSingleEngineTimesOut() throws Exception {
+        ExecutorService coordinatorExecutor = Executors.newSingleThreadExecutor(new NamedThreadFactory("analysis-coordinator-"));
+        ExecutorService engineExecutor = Executors.newCachedThreadPool(new NamedThreadFactory("analysis-engine-"));
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(new NamedThreadFactory("analysis-engine-timeout-scheduler-"));
+        try {
+            AnalysisCoordinator coordinator = new AnalysisCoordinator(
+                List.of(
+                    engine(EngineType.QUERY, "Query summary"),
+                    new BlockingCancellableEngine(EngineType.MEDIA)
+                ),
+                forumCoordinator(),
+                reportGenerator(),
+                new InMemoryAnalysisTaskRepository(),
+                coordinatorExecutor,
+                engineExecutor,
+                scheduler,
+                new AnalysisExecutionPolicy(Duration.ofMinutes(5), Duration.ofMillis(50), 2),
+                new InMemoryEventBus()
+            );
+
+            var snapshot = coordinator.startAnalysis("engine 超时降级任务");
+
+            assertTrue(awaitCondition(() ->
+                coordinator.getTask(snapshot.taskId()).map(task -> task.status() == AnalysisStatus.COMPLETED).orElse(false)
+            ));
+
+            var completed = coordinator.getTask(snapshot.taskId()).orElseThrow();
+            assertEquals(2, completed.engineResults().size());
+            EngineResult timedOutEngine = completed.engineResults().stream()
+                .filter(result -> result.engineType() == EngineType.MEDIA)
+                .findFirst()
+                .orElseThrow();
+            assertEquals("TIMED_OUT", timedOutEngine.metadata().get("status"));
+            assertTrue(timedOutEngine.summary().contains("timed out"));
+        } finally {
+            scheduler.shutdownNow();
+            engineExecutor.shutdownNow();
+            coordinatorExecutor.shutdownNow();
         }
     }
 
@@ -230,6 +401,20 @@ class AnalysisCoordinatorTest {
                     List.of(),
                     java.util.Map.of()
                 );
+            }
+        };
+    }
+
+    private static AnalysisEngine failingEngine(EngineType engineType, String message) {
+        return new AnalysisEngine() {
+            @Override
+            public String engineName() {
+                return engineType.name();
+            }
+
+            @Override
+            public EngineResult analyze(com.bettafish.common.api.AnalysisRequest request) {
+                throw new IllegalStateException(message);
             }
         };
     }
@@ -469,6 +654,107 @@ class AnalysisCoordinatorTest {
 
         private boolean awaitStarted() throws InterruptedException {
             return started.await(2, TimeUnit.SECONDS);
+        }
+    }
+
+    private static final class CoordinatedBlockingEngine implements AnalysisEngine {
+
+        private final EngineType engineType;
+        private final CountDownLatch release;
+        private final CountDownLatch started = new CountDownLatch(1);
+
+        private CoordinatedBlockingEngine(EngineType engineType, CountDownLatch release) {
+            this.engineType = engineType;
+            this.release = release;
+        }
+
+        @Override
+        public String engineName() {
+            return engineType.name();
+        }
+
+        @Override
+        public EngineResult analyze(com.bettafish.common.api.AnalysisRequest request) {
+            throw new UnsupportedOperationException("ExecutionContext overload expected");
+        }
+
+        @Override
+        public EngineResult analyze(com.bettafish.common.api.AnalysisRequest request,
+                                    com.bettafish.common.event.AnalysisEventPublisher publisher,
+                                    ExecutionContext executionContext) {
+            started.countDown();
+            try {
+                release.await(2, TimeUnit.SECONDS);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("interrupted", ex);
+            }
+            return new EngineResult(
+                engineType,
+                engineType.name() + " headline",
+                engineType.name() + " summary",
+                List.of("key point"),
+                List.of(),
+                Map.of()
+            );
+        }
+
+        private boolean awaitStarted() throws InterruptedException {
+            return started.await(1, TimeUnit.SECONDS);
+        }
+    }
+
+    private static final class SequencedBlockingEngine implements AnalysisEngine {
+
+        private final EngineType engineType;
+        private final CountDownLatch release;
+        private final AtomicInteger startedOrder;
+        private final CountDownLatch started = new CountDownLatch(1);
+
+        private SequencedBlockingEngine(EngineType engineType, CountDownLatch release, AtomicInteger startedOrder) {
+            this.engineType = engineType;
+            this.release = release;
+            this.startedOrder = startedOrder;
+        }
+
+        @Override
+        public String engineName() {
+            return engineType.name();
+        }
+
+        @Override
+        public EngineResult analyze(com.bettafish.common.api.AnalysisRequest request) {
+            throw new UnsupportedOperationException("ExecutionContext overload expected");
+        }
+
+        @Override
+        public EngineResult analyze(com.bettafish.common.api.AnalysisRequest request,
+                                    com.bettafish.common.event.AnalysisEventPublisher publisher,
+                                    ExecutionContext executionContext) {
+            startedOrder.incrementAndGet();
+            started.countDown();
+            try {
+                release.await(2, TimeUnit.SECONDS);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("interrupted", ex);
+            }
+            return new EngineResult(
+                engineType,
+                engineType.name() + " headline",
+                engineType.name() + " summary",
+                List.of("key point"),
+                List.of(),
+                Map.of()
+            );
+        }
+
+        private boolean awaitStarted() throws InterruptedException {
+            return awaitStarted(1, TimeUnit.SECONDS);
+        }
+
+        private boolean awaitStarted(long timeout, TimeUnit unit) throws InterruptedException {
+            return started.await(timeout, unit);
         }
     }
 

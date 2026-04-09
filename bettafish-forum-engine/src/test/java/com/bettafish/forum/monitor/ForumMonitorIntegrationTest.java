@@ -57,7 +57,7 @@ class ForumMonitorIntegrationTest {
         monitor.onAgentSpeech(taskId, "agent-2", "short");
         // Search-only content — should be filtered
         monitor.onAgentSpeech(taskId, "agent-3",
-            "search_query: some query without summary keyword present in the text");
+            "search_query: some query that only contains search parameters and nothing else");
         // Valid speech
         monitor.onAgentSpeech(taskId, "agent-4",
             "Another sufficiently long speech content that should pass the filter check.");

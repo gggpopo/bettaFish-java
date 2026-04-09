@@ -1,15 +1,26 @@
 package com.bettafish.common.llm;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import java.time.Duration;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
+import com.bettafish.common.engine.ExecutionCancelledException;
+import com.bettafish.common.engine.ExecutionContext;
+import com.bettafish.common.engine.ExecutionContextHolder;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -32,6 +43,48 @@ class SpringAiLlmGatewayTest {
         String answer = gateway.callText("queryChatClient", "system", "user");
 
         assertEquals("plain text answer", answer);
+    }
+
+    @Test
+    void abortsBlockedTextCallWhenExecutionIsCancelled() throws Exception {
+        ChatClient chatClient = mock(ChatClient.class);
+        ChatClient.ChatClientRequestSpec requestSpec = mock(ChatClient.ChatClientRequestSpec.class);
+        ChatClient.CallResponseSpec responseSpec = mock(ChatClient.CallResponseSpec.class);
+        CountDownLatch started = new CountDownLatch(1);
+
+        when(chatClient.prompt()).thenReturn(requestSpec);
+        when(requestSpec.system(anyString())).thenReturn(requestSpec);
+        when(requestSpec.user(anyString())).thenReturn(requestSpec);
+        when(requestSpec.call()).thenReturn(responseSpec);
+        when(responseSpec.content()).thenAnswer(invocation -> {
+            started.countDown();
+            try {
+                new CountDownLatch(1).await();
+                return "unreachable";
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("interrupted", ex);
+            }
+        });
+
+        SpringAiLlmGateway gateway = new SpringAiLlmGateway(Map.of("queryChatClient", chatClient), new ObjectMapper());
+        ExecutionContext executionContext = new ExecutionContext(Duration.ofMinutes(1));
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<String> future = executor.submit(() -> ExecutionContextHolder.callWith(
+                executionContext,
+                () -> gateway.callText("queryChatClient", "system", "user")
+            ));
+
+            assertTrue(started.await(1, TimeUnit.SECONDS));
+            assertTrue(executionContext.cancel());
+
+            ExecutionException exception = assertThrows(ExecutionException.class, () -> future.get(2, TimeUnit.SECONDS));
+            assertInstanceOf(ExecutionCancelledException.class, exception.getCause());
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     @Test
@@ -154,6 +207,54 @@ class SpringAiLlmGatewayTest {
         );
 
         assertEquals("validated-fallback", fallback.answer());
+    }
+
+    @Test
+    void doesNotDowngradeToFallbackWhenExecutionIsCancelled() throws Exception {
+        ChatClient chatClient = mock(ChatClient.class);
+        ChatClient.ChatClientRequestSpec requestSpec = mock(ChatClient.ChatClientRequestSpec.class);
+        ChatClient.CallResponseSpec responseSpec = mock(ChatClient.CallResponseSpec.class);
+        CountDownLatch started = new CountDownLatch(1);
+
+        when(chatClient.prompt()).thenReturn(requestSpec);
+        when(requestSpec.system(anyString())).thenReturn(requestSpec);
+        when(requestSpec.user(anyString())).thenReturn(requestSpec);
+        when(requestSpec.call()).thenReturn(responseSpec);
+        when(responseSpec.content()).thenAnswer(invocation -> {
+            started.countDown();
+            try {
+                new CountDownLatch(1).await();
+                return "{\"answer\":\"late\"}";
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("interrupted", ex);
+            }
+        });
+
+        SpringAiLlmGateway gateway = new SpringAiLlmGateway(Map.of("queryChatClient", chatClient), new ObjectMapper());
+        ExecutionContext executionContext = new ExecutionContext(Duration.ofMinutes(1));
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<JsonAnswer> future = executor.submit(() -> ExecutionContextHolder.callWith(
+                executionContext,
+                () -> gateway.callJson(
+                    "queryChatClient",
+                    "system",
+                    "user",
+                    JsonAnswer.class,
+                    () -> new JsonAnswer("fallback")
+                )
+            ));
+
+            assertTrue(started.await(1, TimeUnit.SECONDS));
+            assertTrue(executionContext.cancel());
+
+            ExecutionException exception = assertThrows(ExecutionException.class, () -> future.get(2, TimeUnit.SECONDS));
+            assertInstanceOf(ExecutionCancelledException.class, exception.getCause());
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     @Test

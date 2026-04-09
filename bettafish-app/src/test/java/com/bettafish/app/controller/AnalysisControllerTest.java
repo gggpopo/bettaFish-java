@@ -32,6 +32,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import com.bettafish.app.event.InMemoryEventBus;
+import com.bettafish.app.config.AnalysisExecutionPolicy;
 import com.bettafish.app.service.AnalysisCoordinator;
 import com.bettafish.app.service.InMemoryAnalysisTaskRepository;
 import com.bettafish.common.api.AnalysisStatus;
@@ -66,8 +67,9 @@ class AnalysisControllerTest {
             reportGenerator(),
             new InMemoryAnalysisTaskRepository(),
             manualExecutor,
+            Runnable::run,
             scheduler,
-            Duration.ofMinutes(5),
+            new AnalysisExecutionPolicy(Duration.ofMinutes(5), Duration.ofMinutes(5), 3),
             eventBus
         );
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(new AnalysisController(coordinator, eventBus, new ObjectMapper())).build();
@@ -110,8 +112,9 @@ class AnalysisControllerTest {
             reportGenerator(),
             new InMemoryAnalysisTaskRepository(),
             manualExecutor,
+            Runnable::run,
             scheduler,
-            Duration.ofMinutes(5),
+            new AnalysisExecutionPolicy(Duration.ofMinutes(5), Duration.ofMinutes(5), 3),
             eventBus
         );
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(new AnalysisController(coordinator, eventBus, new ObjectMapper())).build();
@@ -153,8 +156,9 @@ class AnalysisControllerTest {
             reportGenerator(),
             new InMemoryAnalysisTaskRepository(),
             manualExecutor,
+            Runnable::run,
             scheduler,
-            Duration.ofMinutes(5),
+            new AnalysisExecutionPolicy(Duration.ofMinutes(5), Duration.ofMinutes(5), 1),
             eventBus
         );
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(new AnalysisController(coordinator, eventBus, new ObjectMapper())).build();
@@ -198,8 +202,9 @@ class AnalysisControllerTest {
             reportGenerator(),
             new InMemoryAnalysisTaskRepository(),
             new ManualExecutor(),
+            Runnable::run,
             new TestScheduledExecutorService(),
-            Duration.ofMinutes(5),
+            new AnalysisExecutionPolicy(Duration.ofMinutes(5), Duration.ofMinutes(5), 1),
             eventBus
         );
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(new AnalysisController(coordinator, eventBus, new ObjectMapper())).build();
@@ -211,6 +216,7 @@ class AnalysisControllerTest {
     @Test
     void cancelsTaskOverHttpAndSseReceivesTerminalEvent() throws Exception {
         ExecutorService executor = Executors.newSingleThreadExecutor(new NamedThreadFactory("controller-cancel-"));
+        ExecutorService engineExecutor = Executors.newSingleThreadExecutor(new NamedThreadFactory("controller-cancel-engine-"));
         ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(new NamedThreadFactory("controller-cancel-scheduler-"));
         try {
             InMemoryEventBus eventBus = new InMemoryEventBus();
@@ -220,8 +226,9 @@ class AnalysisControllerTest {
                 reportGenerator(),
                 new InMemoryAnalysisTaskRepository(),
                 executor,
+                engineExecutor,
                 scheduler,
-                Duration.ofMinutes(5),
+                new AnalysisExecutionPolicy(Duration.ofMinutes(5), Duration.ofMinutes(5), 1),
                 eventBus
             );
             MockMvc mockMvc = MockMvcBuilders.standaloneSetup(new AnalysisController(coordinator, eventBus, new ObjectMapper())).build();
@@ -259,6 +266,7 @@ class AnalysisControllerTest {
                 .andExpect(jsonPath("$.status").value("CANCELLED"));
         } finally {
             scheduler.shutdownNow();
+            engineExecutor.shutdownNow();
             executor.shutdownNow();
         }
     }

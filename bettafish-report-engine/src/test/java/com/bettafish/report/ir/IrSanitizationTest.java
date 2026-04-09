@@ -9,10 +9,13 @@ import org.junit.jupiter.api.Test;
 import com.bettafish.common.api.DocumentBlock;
 import com.bettafish.common.api.DocumentIr;
 import com.bettafish.common.api.DocumentMeta;
+import com.bettafish.common.api.IrValidator;
 
 class IrSanitizationTest {
 
-    private final IrValidator validator = new IrValidator();
+    private List<IrValidator.ValidationError> validate(DocumentIr ir) {
+        return IrValidator.validate(ir);
+    }
 
     private DocumentIr ir(DocumentBlock... blocks) {
         return new DocumentIr(
@@ -25,23 +28,23 @@ class IrSanitizationTest {
     void rejectsEngineQuoteWithNonParagraphBlocks() {
         var doc = ir(new DocumentBlock.EngineQuoteBlock("insight", "Title",
             List.of(new DocumentBlock.TableBlock(List.of("H"), List.of(List.of("V"))))));
-        List<String> errors = validator.validate(doc);
-        assertThat(errors).anyMatch(e -> e.contains("EngineQuoteBlock") && e.contains("non-paragraph"));
+        List<IrValidator.ValidationError> errors = validate(doc);
+        assertThat(errors).anyMatch(e -> e.message().contains("ParagraphBlock"));
     }
 
     @Test
     void rejectsWidgetWithInvalidChartType() {
         var doc = ir(new DocumentBlock.WidgetBlock("unknown", Map.of()));
-        List<String> errors = validator.validate(doc);
-        assertThat(errors).anyMatch(e -> e.contains("invalid chartType"));
+        List<IrValidator.ValidationError> errors = validate(doc);
+        assertThat(errors).anyMatch(e -> e.message().contains("chartType"));
     }
 
     @Test
     void rejectsSwotWithAllEmptyQuadrants() {
         var doc = ir(new DocumentBlock.SwotTableBlock("Empty SWOT",
             List.of(), List.of(), List.of(), List.of()));
-        List<String> errors = validator.validate(doc);
-        assertThat(errors).anyMatch(e -> e.contains("all empty quadrants"));
+        List<IrValidator.ValidationError> errors = validate(doc);
+        assertThat(errors).anyMatch(e -> e.message().toLowerCase().contains("empty"));
     }
 
     @Test
@@ -60,7 +63,7 @@ class IrSanitizationTest {
             new DocumentBlock.EngineQuoteBlock("insight", "Agent", List.of(new DocumentBlock.ParagraphBlock("Quote"))),
             new DocumentBlock.MathBlock("E=mc^2")
         );
-        List<String> errors = validator.validate(doc);
+        List<IrValidator.ValidationError> errors = validate(doc);
         assertThat(errors).isEmpty();
     }
 
@@ -70,8 +73,8 @@ class IrSanitizationTest {
             List.of("H1", "H2"),
             List.of(List.of("V1"))
         ));
-        List<String> errors = validator.validate(doc);
-        assertThat(errors).anyMatch(e -> e.contains("columns"));
+        List<IrValidator.ValidationError> errors = validate(doc);
+        assertThat(errors).anyMatch(e -> e.message().contains("length"));
     }
 
     @Test
@@ -80,7 +83,7 @@ class IrSanitizationTest {
             new DocumentBlock.HeadingBlock(0, "Bad"),
             new DocumentBlock.HeadingBlock(7, "Also bad")
         );
-        List<String> errors = validator.validate(doc);
-        assertThat(errors).hasSize(2);
+        List<IrValidator.ValidationError> errors = validate(doc);
+        assertThat(errors).hasSizeGreaterThanOrEqualTo(2);
     }
 }

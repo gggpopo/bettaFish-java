@@ -14,11 +14,17 @@ public class ExecutionContext {
 
     private final Instant createdAt;
     private final Instant deadline;
+    private final ExecutionContext parent;
     private final AtomicReference<TerminationReason> terminationReason = new AtomicReference<>();
 
     public ExecutionContext(Duration timeout) {
+        this(timeout, null);
+    }
+
+    public ExecutionContext(Duration timeout, ExecutionContext parent) {
         this.createdAt = Instant.now();
         this.deadline = timeout == null ? null : createdAt.plus(timeout);
+        this.parent = parent;
     }
 
     public Instant createdAt() {
@@ -27,6 +33,22 @@ public class ExecutionContext {
 
     public Instant deadline() {
         return deadline;
+    }
+
+    public Duration remainingTime() {
+        promoteDeadlineExpiryToTimeout();
+        Duration localRemaining = deadline == null ? null : nonNegative(Duration.between(Instant.now(), deadline));
+        if (parent == null) {
+            return localRemaining;
+        }
+        Duration parentRemaining = parent.remainingTime();
+        if (localRemaining == null) {
+            return parentRemaining;
+        }
+        if (parentRemaining == null) {
+            return localRemaining;
+        }
+        return localRemaining.compareTo(parentRemaining) <= 0 ? localRemaining : parentRemaining;
     }
 
     public boolean cancel() {
@@ -38,19 +60,19 @@ public class ExecutionContext {
     }
 
     public boolean isCancellationRequested() {
-        return terminationReason.get() != null;
+        return effectiveTerminationReason() != null;
     }
 
     public boolean isTimedOut() {
-        return terminationReason.get() == TerminationReason.TIMED_OUT;
+        return effectiveTerminationReason() == TerminationReason.TIMED_OUT;
     }
 
     public boolean isCancelledByUser() {
-        return terminationReason.get() == TerminationReason.USER_CANCELLED;
+        return effectiveTerminationReason() == TerminationReason.USER_CANCELLED;
     }
 
     public TerminationReason terminationReason() {
-        return terminationReason.get();
+        return effectiveTerminationReason();
     }
 
     public AnalysisStatus terminalStatus() {
@@ -76,9 +98,28 @@ public class ExecutionContext {
     }
 
     public void throwIfCancellationRequested() {
-        TerminationReason reason = terminationReason.get();
+        TerminationReason reason = effectiveTerminationReason();
         if (reason != null) {
             throw new ExecutionCancelledException(reason);
         }
+    }
+
+    private void promoteDeadlineExpiryToTimeout() {
+        if (deadline != null && terminationReason.get() == null && !Instant.now().isBefore(deadline)) {
+            timeout();
+        }
+    }
+
+    private TerminationReason effectiveTerminationReason() {
+        promoteDeadlineExpiryToTimeout();
+        TerminationReason localReason = terminationReason.get();
+        if (localReason != null) {
+            return localReason;
+        }
+        return parent == null ? null : parent.terminationReason();
+    }
+
+    private Duration nonNegative(Duration duration) {
+        return duration.isNegative() ? Duration.ZERO : duration;
     }
 }

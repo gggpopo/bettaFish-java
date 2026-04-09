@@ -13,6 +13,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import com.bettafish.common.api.SourceReference;
+import com.bettafish.common.engine.BlockingCallGuard;
+import com.bettafish.common.engine.ExecutionCancelledException;
+import com.bettafish.common.engine.ExecutionContext;
+import com.bettafish.common.engine.ExecutionContextHolder;
 import com.bettafish.common.config.BettaFishProperties;
 import com.bettafish.common.util.RetryHelper;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -24,6 +28,7 @@ public class TavilySearchTool {
     private static final Logger log = LoggerFactory.getLogger(TavilySearchTool.class);
     private static final Duration RETRY_DELAY = Duration.ofMillis(200);
     private static final int RETRY_ATTEMPTS = 2;
+    private static final Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofSeconds(15);
 
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
@@ -51,6 +56,10 @@ public class TavilySearchTool {
     }
 
     public List<SourceReference> search(String query) {
+        ExecutionContext executionContext = ExecutionContextHolder.current();
+        if (executionContext != null) {
+            executionContext.throwIfCancellationRequested();
+        }
         if (query == null || query.isBlank()) {
             return List.of();
         }
@@ -59,23 +68,29 @@ public class TavilySearchTool {
             return List.of();
         }
         try {
-            return RetryHelper.withRetry(RETRY_ATTEMPTS, RETRY_DELAY, () -> doSearch(query));
+            return RetryHelper.withRetry(RETRY_ATTEMPTS, RETRY_DELAY, () -> doSearch(query, executionContext));
+        } catch (ExecutionCancelledException ex) {
+            throw ex;
         } catch (RuntimeException ex) {
             log.warn("Tavily search failed for query={}: {}", query, ex.getMessage());
             return List.of();
         }
     }
 
-    private List<SourceReference> doSearch(String query) {
+    private List<SourceReference> doSearch(String query, ExecutionContext executionContext) {
         try {
             String payload = objectMapper.writeValueAsString(new TavilySearchRequest(apiKey, query, maxResults));
             HttpRequest request = HttpRequest.newBuilder(searchUri)
-                .timeout(Duration.ofSeconds(15))
+                .timeout(resolveRequestTimeout(executionContext))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
                 .build();
 
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            HttpResponse<String> response = BlockingCallGuard.call(
+                "Tavily search",
+                executionContext,
+                () -> httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+            );
             if (response.statusCode() >= 400) {
                 throw new IllegalStateException("Tavily returned HTTP " + response.statusCode() + " body=" + response.body());
             }
@@ -96,10 +111,22 @@ public class TavilySearchTool {
                 .toList();
         } catch (IOException ex) {
             throw new IllegalStateException("Failed to parse Tavily response", ex);
-        } catch (InterruptedException ex) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Tavily request interrupted", ex);
         }
+    }
+
+    private Duration resolveRequestTimeout(ExecutionContext executionContext) {
+        if (executionContext == null) {
+            return DEFAULT_REQUEST_TIMEOUT;
+        }
+        Duration remaining = executionContext.remainingTime();
+        if (remaining == null) {
+            return DEFAULT_REQUEST_TIMEOUT;
+        }
+        if (remaining.isZero()) {
+            executionContext.throwIfCancellationRequested();
+        }
+        Duration bounded = remaining.compareTo(DEFAULT_REQUEST_TIMEOUT) < 0 ? remaining : DEFAULT_REQUEST_TIMEOUT;
+        return bounded.compareTo(Duration.ofMillis(1)) < 0 ? Duration.ofMillis(1) : bounded;
     }
 
     private static String normalizeBaseUrl(String baseUrl) {

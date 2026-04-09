@@ -3,6 +3,10 @@ spring:
     name: bettafish-app
 
 bettafish:
+  analysis:
+    task-timeout: ${BETTAFISH_ANALYSIS_TASK_TIMEOUT:PT5M}
+    engine-timeout: ${BETTAFISH_ANALYSIS_ENGINE_TIMEOUT:PT90S}
+    max-concurrent-engines: ${BETTAFISH_ANALYSIS_MAX_CONCURRENT_ENGINES:3}
   llm:
     query:
       enabled: ${BETTAFISH_LLM_QUERY_ENABLED:false}

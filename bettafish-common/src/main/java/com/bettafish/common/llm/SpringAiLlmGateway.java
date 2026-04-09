@@ -5,6 +5,8 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Component;
+import com.bettafish.common.engine.BlockingCallGuard;
+import com.bettafish.common.engine.ExecutionCancelledException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -73,22 +75,24 @@ public class SpringAiLlmGateway implements LlmGateway {
     }
 
     private String requestContent(String clientName, String systemPrompt, String userPrompt, boolean jsonOnly) {
-        ChatClient chatClient = chatClients.get(clientName);
-        if (chatClient == null) {
-            throw new IllegalArgumentException("No ChatClient registered for: " + clientName);
-        }
+        return BlockingCallGuard.call("LLM client " + clientName, () -> {
+            ChatClient chatClient = chatClients.get(clientName);
+            if (chatClient == null) {
+                throw new IllegalArgumentException("No ChatClient registered for: " + clientName);
+            }
 
-        String normalizedSystemPrompt = jsonOnly ? normalizeJsonSystemPrompt(systemPrompt) : systemPrompt;
-        String raw = chatClient.prompt()
-            .system(normalizedSystemPrompt)
-            .user(userPrompt)
-            .call()
-            .content();
+            String normalizedSystemPrompt = jsonOnly ? normalizeJsonSystemPrompt(systemPrompt) : systemPrompt;
+            String raw = chatClient.prompt()
+                .system(normalizedSystemPrompt)
+                .user(userPrompt)
+                .call()
+                .content();
 
-        if (raw == null || raw.isBlank()) {
-            throw new IllegalStateException("LLM returned empty content for client: " + clientName);
-        }
-        return raw;
+            if (raw == null || raw.isBlank()) {
+                throw new IllegalStateException("LLM returned empty content for client: " + clientName);
+            }
+            return raw;
+        });
     }
 
     private String normalizeJsonSystemPrompt(String systemPrompt) {
@@ -98,6 +102,9 @@ public class SpringAiLlmGateway implements LlmGateway {
     }
 
     private <T> T fallbackOrThrow(Supplier<T> fallbackSupplier, RuntimeException exception) {
+        if (exception instanceof ExecutionCancelledException cancelledException) {
+            throw cancelledException;
+        }
         if (fallbackSupplier != null) {
             return fallbackSupplier.get();
         }
