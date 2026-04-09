@@ -120,9 +120,10 @@ public final class QueryPrompts {
         请严格按照以下JSON格式输出：
         ```json
         {
-            "search_query": "补充搜索的查询词",
+            "should_refine": true或false,
+            "search_query": "补充搜索的查询词（should_refine为true时必填）",
             "search_tool": "选择的工具名称",
-            "reasoning": "需要补充搜索的理由和期望获取的信息",
+            "reasoning": "判断理由：为什么需要或不需要补充搜索",
             "start_date": "YYYY-MM-DD（仅search_news_by_date时需要）",
             "end_date": "YYYY-MM-DD（仅search_news_by_date时需要）"
         }
