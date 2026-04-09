@@ -41,12 +41,13 @@ public class ReportAgent implements ReportGenerator {
     private final WordBudgetNode wordBudgetNode;
     private final DocumentComposer documentComposer;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public ReportAgent(ChapterGenerationNode chapterGenerationNode,
                        HtmlRenderer htmlRenderer,
-                       TemplateSelectionNode templateSelectionNode,
-                       DocumentLayoutNode documentLayoutNode,
-                       WordBudgetNode wordBudgetNode,
-                       DocumentComposer documentComposer) {
+                       @org.springframework.lang.Nullable TemplateSelectionNode templateSelectionNode,
+                       @org.springframework.lang.Nullable DocumentLayoutNode documentLayoutNode,
+                       @org.springframework.lang.Nullable WordBudgetNode wordBudgetNode,
+                       @org.springframework.lang.Nullable DocumentComposer documentComposer) {
         this.chapterGenerationNode = chapterGenerationNode;
         this.htmlRenderer = htmlRenderer;
         this.templateSelectionNode = templateSelectionNode;
