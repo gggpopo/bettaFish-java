@@ -56,6 +56,47 @@ public class HtmlRenderer {
                 .append("\">")
                 .append(escape(linkBlock.text()))
                 .append("</a></p>");
+            case DocumentBlock.WidgetBlock widgetBlock -> html
+                .append("<div class=\"chart-placeholder\">[Chart: ")
+                .append(escape(widgetBlock.chartType()))
+                .append("]</div>");
+            case DocumentBlock.CalloutBlock calloutBlock -> html
+                .append("<div class=\"callout callout-")
+                .append(escapeAttribute(calloutBlock.level()))
+                .append("\">")
+                .append(escape(calloutBlock.text()))
+                .append("</div>");
+            case DocumentBlock.KpiGridBlock kpiGridBlock -> {
+                html.append("<div class=\"kpi-grid\">");
+                for (DocumentBlock.KpiItem item : kpiGridBlock.items()) {
+                    html.append("<div class=\"kpi-item\"><span class=\"kpi-label\">")
+                        .append(escape(item.label()))
+                        .append("</span><span class=\"kpi-value\">")
+                        .append(escape(item.value()))
+                        .append("</span><span class=\"kpi-trend\">")
+                        .append(escape(item.trend()))
+                        .append("</span></div>");
+                }
+                html.append("</div>");
+            }
+            case DocumentBlock.HrBlock ignored -> html.append("<hr>");
+            case DocumentBlock.SwotTableBlock swotBlock -> renderSwotTable(html, swotBlock);
+            case DocumentBlock.PestTableBlock pestBlock -> renderPestTable(html, pestBlock);
+            case DocumentBlock.EngineQuoteBlock engineQuoteBlock -> {
+                html.append("<blockquote class=\"engine-quote\"><p><strong>")
+                    .append(escape(engineQuoteBlock.engine()))
+                    .append("</strong>: ")
+                    .append(escape(engineQuoteBlock.title()))
+                    .append("</p>");
+                for (DocumentBlock inner : engineQuoteBlock.blocks()) {
+                    renderBlock(html, inner);
+                }
+                html.append("</blockquote>");
+            }
+            case DocumentBlock.MathBlock mathBlock -> html
+                .append("<div class=\"math-block\">$$")
+                .append(escape(mathBlock.latex()))
+                .append("$$</div>");
         }
     }
 
@@ -81,6 +122,36 @@ public class HtmlRenderer {
             html.append("</tr>");
         }
         html.append("</tbody></table>");
+    }
+
+    private void renderSwotTable(StringBuilder html, DocumentBlock.SwotTableBlock swotBlock) {
+        html.append("<table class=\"swot-table\"><caption>").append(escape(swotBlock.title())).append("</caption>");
+        html.append("<thead><tr><th>Strengths</th><th>Weaknesses</th><th>Opportunities</th><th>Threats</th></tr></thead>");
+        html.append("<tbody><tr>");
+        renderCellList(html, swotBlock.strengths());
+        renderCellList(html, swotBlock.weaknesses());
+        renderCellList(html, swotBlock.opportunities());
+        renderCellList(html, swotBlock.threats());
+        html.append("</tr></tbody></table>");
+    }
+
+    private void renderPestTable(StringBuilder html, DocumentBlock.PestTableBlock pestBlock) {
+        html.append("<table class=\"pest-table\"><caption>").append(escape(pestBlock.title())).append("</caption>");
+        html.append("<thead><tr><th>Political</th><th>Economic</th><th>Social</th><th>Technological</th></tr></thead>");
+        html.append("<tbody><tr>");
+        renderCellList(html, pestBlock.political());
+        renderCellList(html, pestBlock.economic());
+        renderCellList(html, pestBlock.social());
+        renderCellList(html, pestBlock.technological());
+        html.append("</tr></tbody></table>");
+    }
+
+    private void renderCellList(StringBuilder html, List<String> items) {
+        html.append("<td><ul>");
+        for (String item : items) {
+            html.append("<li>").append(escape(item)).append("</li>");
+        }
+        html.append("</ul></td>");
     }
 
     private int normalizeLevel(int level) {

@@ -101,6 +101,21 @@ public class ChapterGenerationNode {
             case DocumentBlock.LinkBlock linkBlock ->
                 isBlank(linkBlock.text()) || isBlank(linkBlock.href()) ? "link is incomplete" : null;
             case DocumentBlock.HeadingBlock ignored -> null;
+            case DocumentBlock.WidgetBlock widgetBlock ->
+                widgetBlock.config() == null || widgetBlock.config().isEmpty() ? "widget config is empty" : null;
+            case DocumentBlock.CalloutBlock calloutBlock ->
+                isBlank(calloutBlock.text()) ? "callout text is blank" : null;
+            case DocumentBlock.KpiGridBlock kpiGridBlock ->
+                kpiGridBlock.items().isEmpty() ? "kpi grid items are empty" : null;
+            case DocumentBlock.HrBlock ignored2 -> null;
+            case DocumentBlock.SwotTableBlock swotBlock ->
+                isBlank(swotBlock.title()) ? "swot table title is blank" : null;
+            case DocumentBlock.PestTableBlock pestBlock ->
+                isBlank(pestBlock.title()) ? "pest table title is blank" : null;
+            case DocumentBlock.EngineQuoteBlock engineQuoteBlock ->
+                engineQuoteBlock.blocks().isEmpty() ? "engine quote blocks are empty" : null;
+            case DocumentBlock.MathBlock mathBlock ->
+                isBlank(mathBlock.latex()) ? "math latex is blank" : null;
         };
     }
 
@@ -115,6 +130,27 @@ public class ChapterGenerationNode {
             case DocumentBlock.CodeBlock codeBlock -> codeBlock.code().trim().length();
             case DocumentBlock.LinkBlock linkBlock -> linkBlock.text().trim().length() + linkBlock.href().trim().length();
             case DocumentBlock.HeadingBlock ignored -> 0;
+            case DocumentBlock.WidgetBlock widgetBlock -> widgetBlock.chartType().length() + 10;
+            case DocumentBlock.CalloutBlock calloutBlock -> calloutBlock.text().length();
+            case DocumentBlock.KpiGridBlock kpiGridBlock ->
+                kpiGridBlock.items().stream().mapToInt(item -> item.label().length() + item.value().length()).sum();
+            case DocumentBlock.HrBlock ignored2 -> 3;
+            case DocumentBlock.SwotTableBlock swotBlock ->
+                swotBlock.title().length()
+                    + swotBlock.strengths().stream().mapToInt(String::length).sum()
+                    + swotBlock.weaknesses().stream().mapToInt(String::length).sum()
+                    + swotBlock.opportunities().stream().mapToInt(String::length).sum()
+                    + swotBlock.threats().stream().mapToInt(String::length).sum();
+            case DocumentBlock.PestTableBlock pestBlock ->
+                pestBlock.title().length()
+                    + pestBlock.political().stream().mapToInt(String::length).sum()
+                    + pestBlock.economic().stream().mapToInt(String::length).sum()
+                    + pestBlock.social().stream().mapToInt(String::length).sum()
+                    + pestBlock.technological().stream().mapToInt(String::length).sum();
+            case DocumentBlock.EngineQuoteBlock engineQuoteBlock ->
+                engineQuoteBlock.title().length()
+                    + engineQuoteBlock.blocks().stream().mapToInt(this::visibleLength).sum();
+            case DocumentBlock.MathBlock mathBlock -> mathBlock.latex().length();
         };
     }
 

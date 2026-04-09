@@ -56,6 +56,36 @@ public record DocumentIr(
                 currentContent.add(linkBlock.text() + " (" + linkBlock.href() + ")");
             case DocumentBlock.HeadingBlock headingBlock ->
                 currentContent.add("#".repeat(Math.max(1, headingBlock.level())) + " " + headingBlock.text());
+            case DocumentBlock.WidgetBlock widgetBlock ->
+                currentContent.add("[图表: " + widgetBlock.chartType() + "]");
+            case DocumentBlock.CalloutBlock calloutBlock ->
+                currentContent.add("[" + calloutBlock.level() + "] " + calloutBlock.text());
+            case DocumentBlock.KpiGridBlock kpiGridBlock ->
+                currentContent.add(kpiGridBlock.items().stream()
+                    .map(item -> item.label() + ": " + item.value())
+                    .reduce((l, r) -> l + ", " + r).orElse(""));
+            case DocumentBlock.HrBlock ignored ->
+                currentContent.add("---");
+            case DocumentBlock.SwotTableBlock swotBlock ->
+                currentContent.add("SWOT: " + swotBlock.title()
+                    + " | S: " + String.join(", ", swotBlock.strengths())
+                    + " | W: " + String.join(", ", swotBlock.weaknesses())
+                    + " | O: " + String.join(", ", swotBlock.opportunities())
+                    + " | T: " + String.join(", ", swotBlock.threats()));
+            case DocumentBlock.PestTableBlock pestBlock ->
+                currentContent.add("PEST: " + pestBlock.title()
+                    + " | P: " + String.join(", ", pestBlock.political())
+                    + " | E: " + String.join(", ", pestBlock.economic())
+                    + " | S: " + String.join(", ", pestBlock.social())
+                    + " | T: " + String.join(", ", pestBlock.technological()));
+            case DocumentBlock.EngineQuoteBlock engineQuoteBlock -> {
+                currentContent.add("[" + engineQuoteBlock.engine() + "] " + engineQuoteBlock.title());
+                for (DocumentBlock inner : engineQuoteBlock.blocks()) {
+                    appendBlock(currentContent, inner);
+                }
+            }
+            case DocumentBlock.MathBlock mathBlock ->
+                currentContent.add("$" + mathBlock.latex() + "$");
         }
     }
 
