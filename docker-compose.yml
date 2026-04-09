@@ -1,0 +1,37 @@
+version: '3.8'
+services:
+  bettafish-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - BETTAFISH_SENTIMENT_MCP_BASE_URL=http://sentiment-mcp:8081
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+      - sentiment-mcp
+
+  sentiment-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile.sentiment
+    ports:
+      - "8081:8081"
+
+  postgres:
+    image: postgres:15
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: media_crawler
+      POSTGRES_USER: bettafish
+      POSTGRES_PASSWORD: bettafish
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

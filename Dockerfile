@@ -1,0 +1,24 @@
+# Stage 1: Build
+FROM eclipse-temurin:21-jdk AS builder
+WORKDIR /app
+COPY pom.xml .
+COPY bettafish-common/pom.xml bettafish-common/
+COPY bettafish-app/pom.xml bettafish-app/
+COPY bettafish-query-engine/pom.xml bettafish-query-engine/
+COPY bettafish-media-engine/pom.xml bettafish-media-engine/
+COPY bettafish-insight-engine/pom.xml bettafish-insight-engine/
+COPY bettafish-forum-engine/pom.xml bettafish-forum-engine/
+COPY bettafish-report-engine/pom.xml bettafish-report-engine/
+COPY bettafish-mind-spider/pom.xml bettafish-mind-spider/
+COPY bettafish-sentiment-mcp/pom.xml bettafish-sentiment-mcp/
+# Download dependencies first (cached layer)
+RUN --mount=type=cache,target=/root/.m2 mvn dependency:go-offline -B -q
+COPY . .
+RUN --mount=type=cache,target=/root/.m2 mvn package -DskipTests -B -q
+
+# Stage 2: Runtime
+FROM eclipse-temurin:21-jre
+WORKDIR /app
+COPY --from=builder /app/bettafish-app/target/*.jar app.jar
+EXPOSE 8080
+ENTRYPOINT ["java", "-jar", "app.jar"]
