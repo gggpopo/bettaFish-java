@@ -33,6 +33,19 @@ public class ForumCoordinator implements com.bettafish.common.engine.ForumCoordi
                                    AnalysisEventPublisher publisher) {
         List<ForumMessage> transcript = forumTranscriptService.transcript(request.taskId());
         List<ForumGuidance> guidanceHistory = forumTranscriptService.guidanceHistory(request.taskId());
+
+        // If already converged, return summary immediately without further moderation
+        if (forumTranscriptService.hasConverged(request.taskId()) && !guidanceHistory.isEmpty()) {
+            ForumGuidance latestGuidance = guidanceHistory.getLast();
+            return new ForumSummary(
+                latestGuidance.summary(),
+                latestGuidance.focusPoints(),
+                combineOpenQuestions(latestGuidance),
+                transcript,
+                guidanceHistory
+            );
+        }
+
         if (guidanceHistory.isEmpty() && !transcript.isEmpty()) {
             forumTranscriptService.ensureGuidance(request.taskId());
             guidanceHistory = forumTranscriptService.guidanceHistory(request.taskId());
