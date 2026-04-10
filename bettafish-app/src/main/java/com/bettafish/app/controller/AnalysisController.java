@@ -38,6 +38,11 @@ public class AnalysisController {
         this.objectMapper = objectMapper.copy().findAndRegisterModules();
     }
 
+    @GetMapping
+    public ResponseEntity<java.util.List<AnalysisTaskSnapshot>> listAnalyses() {
+        return ResponseEntity.ok(analysisCoordinator.listTasks());
+    }
+
     @PostMapping
     public ResponseEntity<AnalysisTaskSnapshot> createAnalysis(@RequestBody CreateAnalysisTaskRequest request) {
         return ResponseEntity.ok(analysisCoordinator.startAnalysis(request.query()));

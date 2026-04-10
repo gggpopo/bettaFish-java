@@ -21,4 +21,9 @@ public class InMemoryAnalysisTaskRepository implements AnalysisTaskRepository {
     public Optional<AnalysisTaskSnapshot> findById(String taskId) {
         return Optional.ofNullable(tasks.get(taskId));
     }
+
+    @Override
+    public java.util.List<AnalysisTaskSnapshot> findAll() {
+        return new java.util.ArrayList<>(tasks.values());
+    }
 }

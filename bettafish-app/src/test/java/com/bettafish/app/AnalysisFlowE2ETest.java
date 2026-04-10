@@ -145,6 +145,7 @@ class AnalysisFlowE2ETest {
         private final java.util.concurrent.ConcurrentHashMap<String, AnalysisTaskSnapshot> store = new java.util.concurrent.ConcurrentHashMap<>();
         @Override public AnalysisTaskSnapshot save(AnalysisTaskSnapshot snapshot) { store.put(snapshot.taskId(), snapshot); return snapshot; }
         @Override public java.util.Optional<AnalysisTaskSnapshot> findById(String taskId) { return java.util.Optional.ofNullable(store.get(taskId)); }
+        @Override public java.util.List<AnalysisTaskSnapshot> findAll() { return new java.util.ArrayList<>(store.values()); }
     }
 
     private static final class StubScheduler extends AbstractExecutorService implements ScheduledExecutorService {

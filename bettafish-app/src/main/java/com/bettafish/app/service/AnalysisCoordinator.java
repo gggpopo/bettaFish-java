@@ -113,6 +113,10 @@ public class AnalysisCoordinator {
         return taskRepository.findById(taskId);
     }
 
+    public List<AnalysisTaskSnapshot> listTasks() {
+        return taskRepository.findAll();
+    }
+
     public Optional<AnalysisTaskSnapshot> cancelAnalysis(String taskId) {
         Optional<AnalysisTaskSnapshot> snapshot = taskRepository.findById(taskId);
         if (snapshot.isEmpty()) {

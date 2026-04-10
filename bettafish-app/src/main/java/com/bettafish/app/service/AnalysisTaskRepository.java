@@ -8,4 +8,6 @@ public interface AnalysisTaskRepository {
     AnalysisTaskSnapshot save(AnalysisTaskSnapshot snapshot);
 
     Optional<AnalysisTaskSnapshot> findById(String taskId);
+
+    java.util.List<AnalysisTaskSnapshot> findAll();
 }
