@@ -4,6 +4,19 @@ server:
 spring:
   application:
     name: bettafish-app
+  ai:
+    # Disable all Spring AI auto-configurations — we build our own OpenAiChatModel
+    # beans in LlmAutoConfiguration with per-role API keys. Leaving these on causes
+    # the top-level OpenAiAudioSpeechAutoConfiguration to fail because no global
+    # spring.ai.openai.api-key is set.
+    model:
+      chat: none
+      embedding: none
+      image: none
+      moderation: none
+      audio:
+        speech: none
+        transcription: none
 
 bettafish:
   analysis:
