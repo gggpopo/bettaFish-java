@@ -21,8 +21,8 @@ public class SpringAiLlmGateway implements LlmGateway {
     private final Map<String, ChatClient> chatClients;
     private final JsonOutputParser jsonOutputParser;
 
-    public SpringAiLlmGateway(Map<String, ChatClient> chatClients, ObjectMapper objectMapper) {
-        this.chatClients = chatClients;
+    public SpringAiLlmGateway(@org.springframework.lang.Nullable Map<String, ChatClient> chatClients, ObjectMapper objectMapper) {
+        this.chatClients = chatClients != null ? chatClients : Map.of();
         this.jsonOutputParser = new JsonOutputParser(objectMapper);
     }
 
