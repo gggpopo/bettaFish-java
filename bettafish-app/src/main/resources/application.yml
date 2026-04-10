@@ -1,3 +1,6 @@
+server:
+  port: 2001
+
 spring:
   application:
     name: bettafish-app

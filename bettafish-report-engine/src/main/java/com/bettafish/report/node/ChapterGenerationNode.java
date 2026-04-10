@@ -5,6 +5,7 @@ import java.util.List;
 import org.springframework.stereotype.Component;
 import com.bettafish.common.api.DocumentBlock;
 import com.bettafish.common.llm.LlmGateway;
+import org.springframework.beans.factory.annotation.Autowired;
 import com.bettafish.report.ir.ChapterGenerationResult;
 import com.bettafish.report.ir.ChapterSpec;
 import com.bettafish.report.prompt.ReportPrompts;
@@ -20,6 +21,7 @@ public class ChapterGenerationNode {
     private final int maxAttempts;
     private final int minDensity;
 
+    @Autowired
     public ChapterGenerationNode(LlmGateway llmGateway) {
         this(llmGateway, DEFAULT_MAX_ATTEMPTS, DEFAULT_MIN_DENSITY);
     }
