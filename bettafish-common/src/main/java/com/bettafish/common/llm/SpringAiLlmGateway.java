@@ -3,6 +3,8 @@ package com.bettafish.common.llm;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Component;
 import com.bettafish.common.engine.BlockingCallGuard;
@@ -12,6 +14,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Component
 public class SpringAiLlmGateway implements LlmGateway {
+
+    private static final Logger log = LoggerFactory.getLogger(SpringAiLlmGateway.class);
 
     private static final String JSON_ONLY_SUFFIX = """
         你必须只返回一个合法 JSON 值。
@@ -31,6 +35,7 @@ public class SpringAiLlmGateway implements LlmGateway {
         try {
             return requestContent(clientName, systemPrompt, userPrompt, false);
         } catch (RuntimeException ex) {
+            log.warn("LLM callText failed for client [{}]: {}", clientName, ex.getMessage());
             return fallbackOrThrow(fallbackSupplier, ex);
         }
     }
@@ -70,6 +75,7 @@ public class SpringAiLlmGateway implements LlmGateway {
 
             return fallbackOrThrow(fallbackSupplier, invalidJson(clientName, parseResult));
         } catch (RuntimeException ex) {
+            log.warn("LLM callJson failed for client [{}]: {}", clientName, ex.getMessage());
             return fallbackOrThrow(fallbackSupplier, ex);
         }
     }

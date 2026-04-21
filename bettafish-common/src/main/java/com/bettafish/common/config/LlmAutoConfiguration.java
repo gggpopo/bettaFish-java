@@ -108,6 +108,7 @@ public class LlmAutoConfiguration {
         OpenAiApi openAiApi = OpenAiApi.builder()
             .apiKey(config.getApiKey())
             .baseUrl(config.getBaseUrl())
+            .completionsPath(config.getCompletionsPath())
             .build();
 
         OpenAiChatOptions defaultOptions = OpenAiChatOptions.builder()

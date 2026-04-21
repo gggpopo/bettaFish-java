@@ -28,6 +28,16 @@ echo "[OK] Java $(java -version 2>&1 | head -1 | cut -d'"' -f2)"
 # 加载环境变量
 export $(grep -v '^#' .env | grep -v '^$' | xargs)
 
+# 杀掉占用端口的旧进程
+for port in 8081 2001; do
+    pids=$(lsof -ti:$port 2>/dev/null || true)
+    if [ -n "$pids" ]; then
+        echo "[清理] 杀掉占用端口 $port 的旧进程: $pids"
+        echo "$pids" | xargs kill -9 2>/dev/null || true
+        sleep 1
+    fi
+done
+
 # 构建项目
 echo ""
 echo "[1/3] 构建项目..."

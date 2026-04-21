@@ -34,11 +34,11 @@ public class BettaFishProperties {
     public static class LlmProperties {
 
         private final ClientConfig query = new ClientConfig("https://api.deepseek.com", "deepseek-chat", 0.7);
-        private final ClientConfig media = new ClientConfig("https://aihubmix.com/v1", "gemini-2.5-pro", 0.7);
-        private final ClientConfig insight = new ClientConfig("https://api.moonshot.cn/v1", "kimi-k2", 0.7);
-        private final ClientConfig report = new ClientConfig("https://aihubmix.com/v1", "gemini-2.5-pro", 0.7);
-        private final ClientConfig forumHost = new ClientConfig("https://api.siliconflow.cn/v1", "Qwen/Qwen3-235B-A22B", 0.6);
-        private final ClientConfig keywordOptimizer = new ClientConfig("https://api.siliconflow.cn/v1", "Qwen/Qwen3-235B-A22B", 0.7);
+        private final ClientConfig media = new ClientConfig("https://generativelanguage.googleapis.com", "/v1beta/openai/chat/completions", "gemini-2.5-pro", 0.7);
+        private final ClientConfig insight = new ClientConfig("https://api.moonshot.cn", "kimi-k2", 0.7);
+        private final ClientConfig report = new ClientConfig("https://generativelanguage.googleapis.com", "/v1beta/openai/chat/completions", "gemini-2.5-pro", 0.7);
+        private final ClientConfig forumHost = new ClientConfig("https://api.siliconflow.cn", "Qwen/Qwen3-235B-A22B", 0.6);
+        private final ClientConfig keywordOptimizer = new ClientConfig("https://api.siliconflow.cn", "Qwen/Qwen3-235B-A22B", 0.7);
         private final ClientConfig mindspider = new ClientConfig("https://api.deepseek.com", "deepseek-chat", 0.7);
 
         public ClientConfig getQuery() {
@@ -75,6 +75,7 @@ public class BettaFishProperties {
         private boolean enabled;
         private String apiKey;
         private String baseUrl;
+        private String completionsPath = "/v1/chat/completions";
         private String modelName;
         private double temperature;
 
@@ -83,6 +84,13 @@ public class BettaFishProperties {
 
         public ClientConfig(String baseUrl, String modelName, double temperature) {
             this.baseUrl = baseUrl;
+            this.modelName = modelName;
+            this.temperature = temperature;
+        }
+
+        public ClientConfig(String baseUrl, String completionsPath, String modelName, double temperature) {
+            this.baseUrl = baseUrl;
+            this.completionsPath = completionsPath;
             this.modelName = modelName;
             this.temperature = temperature;
         }
@@ -109,6 +117,14 @@ public class BettaFishProperties {
 
         public void setBaseUrl(String baseUrl) {
             this.baseUrl = baseUrl;
+        }
+
+        public String getCompletionsPath() {
+            return completionsPath;
+        }
+
+        public void setCompletionsPath(String completionsPath) {
+            this.completionsPath = completionsPath;
         }
 
         public String getModelName() {
